@@ -1,0 +1,6 @@
+surya-ocr==0.17.1
+transformers==4.57.3
+bullmq>=2.23.0
+pydantic-settings>=2.7
+Pillow>=10.2.0,<11.0.0
+requests>=2.32

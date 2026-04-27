@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OtpStatus {
+  PENDING   // sent to provider, awaiting DLR
+  SENT      // provider confirmed acceptance (HTTP 200)
+  DELIVERED // DLR confirmed delivery to handset
+  FAILED    // provider or DLR reported failure
+  TIMEOUT   // no DLR received within timeout window
+  VERIFIED  // OTP was successfully verified by user
+  EXPIRED   // OTP TTL expired without verification
+}
+
+enum Channel {
+  SMS
+  WHATSAPP
+  VOICE
+}
+
+model OtpAuditLog {
+  id            String    @id @default(uuid())
+  phone         String    // masked E.164: +91****4983
+  phoneHash     String    // SHA256(E.164) — used for Redis key and lookups
+  country       String    // ISO 3166-1 alpha-2, e.g. "IN"
+  carrier       String?   // detected carrier name
+  channel       Channel
+  provider      String    // fast2sms | msg91 | twilio
+  providerRef   String?   // provider's request_id / message_sid
+  status        OtpStatus @default(PENDING)
+  failoverChain Json?     // [{ provider, channel, status, ms }]
+  attempts      Int       @default(0) // verification attempts by user
+  duration      Int?      // ms from send to final status
+  cost          Float?    // estimated cost in INR
+  templateId    String?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime  @default(now())
+  verifiedAt    DateTime?
+  expiredAt     DateTime?
+
+  @@index([phoneHash, createdAt])
+  @@index([provider, status, createdAt])
+  @@index([channel, status, createdAt])
+  @@index([ipAddress, createdAt])
+}
+
+model ProviderHealth {
+  id              String    @id @default(uuid())
+  provider        String
+  country         String
+  channel         Channel
+  successCount    Int       @default(0)
+  failureCount    Int       @default(0)
+  totalLatencyMs  Int       @default(0) // cumulative ms for avg calculation
+  circuitState    String    @default("closed") // closed | open | half-open
+  circuitOpenedAt DateTime?
+  windowStart     DateTime  @default(now()) // sliding window start
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([provider, country, channel])
+  @@index([circuitState])
+}
+
+model DlrCallback {
+  id          String   @id @default(uuid())
+  provider    String
+  providerRef String   // matches OtpAuditLog.providerRef
+  rawPayload  Json
+  status      String   // provider-specific status code
+  receivedAt  DateTime @default(now())
+
+  @@index([providerRef])
+}

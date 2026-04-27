@@ -1,0 +1,39 @@
+CASH RECEIPT
+
+Adress: 1234 Lorem Ipsum, Dolor
+Tel: 123-456-7890
+
+Date: 01-01-2018        10:35
+
+Lorem                   6.50
+Ipsum                   7.50
+Dolor Sit              48.00
+Amet                    9.30
+Consectetur            11.90
+Adipiscing Elit         1.20
+Sed Do                  0.40
+
+Total                  84.80
+
+Sub-total              76.80
+Sales Tax               8.00
+Balance                84.80
+
+THANK YOU
+
+
+google 
+
+CASH RECEIPTAddress: 1234 Lorem Ipsum, DolorTel: 123-456-7890Date: 01-01-2018 10:35Lorem 6.50Ipsum 7.50Dolor Sit 48.00Amet 9.30Consectetur 11.90Adipiscing Elit 1.20Sed Do 0.40Total 84.80Sub-total 76.80Sales Tax 8.00Balance 84.80THANK YOU
+
+surya 
+
+<b>CASH RECEIPT</b>Adress: 1234 Lorem Ipsum, DolorTel: 123-456-7890Date: 01-01-201810:356.50Lorem7.50Ipsum48.00Dolor Sit9,30Amer11.90Consectetur1,20Adipiscing Elit0.40Sed Do84.80TotalSub-total76,808.00Sales TaxBalance84.80<b>THANK YOU</b>
+paddle
+CASH RECEIPTJ107Tel: 123-456-7890Date: 01-01-2018 10:35<table><tr><td>Lorem</td><td>6.50</td></tr><tr><td>Ipsum</td><td>7.50</td></tr><tr><td>Dolor Sit</td><td>48.00</td></tr><tr><td>Amet</td><td>9.30</td></tr><tr><td>Consectetur</td><td>11.90</td></tr><tr><td>Adipiscing Elit</td><td>1.20</td></tr><tr><td>Sed Do</td><td>0.40</td></tr><tr><td>Total</td><td>84.80</td></tr><tr><td>Sub-total</td><td>76.80</td></tr><tr><td>Sales Tax</td><td>8.00</td></tr><tr><td>Balance</td><td>84.80</td></tr></table>THANK YOU
+
+final results 
+
+ CASH RECEIPTAdress: 1234 Lorem Ipsum, DolorTel: 123-456-7890Date: 01-01-2018 10:35Lorem 6.50Ipsum 7.50Dolor Sit        
+  48.00Amet 9.30Consectetur 11.90Adipiscing Elit 1.20Sed Do 0.40Total 84.80Sub-total 76.80Sales Tax 8.00Balance          
+  84.80THANK YOU
