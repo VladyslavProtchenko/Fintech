@@ -66,6 +66,15 @@ export class ResultsController {
               mergeStrategy: true,
             },
           },
+          fraudAnalysis: {
+            select: {
+              score: true,
+              verdict: true,
+              flags: true,
+              durationMs: true,
+              createdAt: true,
+            },
+          },
         },
       });
 

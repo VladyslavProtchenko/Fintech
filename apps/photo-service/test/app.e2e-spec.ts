@@ -80,7 +80,8 @@ describe('photo-service (e2e)', () => {
   });
 
   afterEach(async () => {
-    // Clean DB between tests
+    // Clean DB between tests — order matters due to foreign keys
+    await prisma.fraudAnalysis.deleteMany();
     await prisma.mergedOcrResult.deleteMany();
     await prisma.ocrResult.deleteMany();
     await prisma.photo.deleteMany();

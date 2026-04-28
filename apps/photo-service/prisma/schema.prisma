@@ -13,6 +13,7 @@ enum PhotoStatus {
   COMPLETED
   FAILED
   DUPLICATE
+  FLAGGED
 }
 
 model Photo {
@@ -28,6 +29,21 @@ model Photo {
   updatedAt     DateTime         @updatedAt
   ocrResults    OcrResult[]
   mergedResult  MergedOcrResult?
+  fraudAnalysis FraudAnalysis?
+}
+
+model FraudAnalysis {
+  id               String   @id @default(uuid())
+  photoId          String   @unique
+  score            Float
+  verdict          String   // CLEAN | SUSPICIOUS | LIKELY_FORGED
+  flags            String[]
+  metadataResult   Json?
+  elaResult        Json?
+  geminiResult     Json?
+  durationMs       Int      @default(0)
+  createdAt        DateTime @default(now())
+  photo            Photo    @relation(fields: [photoId], references: [id])
 }
 
 model MergedOcrResult {

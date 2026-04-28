@@ -1,10 +1,11 @@
-import { readFile, writeFile } from 'fs/promises';
+import { readFile, writeFile, copyFile } from 'fs/promises';
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { AppLogger } from '@fintech/shared-logger';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImageProcessorService } from '../upload/services/image-processor.service';
 import { AllowedMimeType } from '../upload/constants';
+import { FRAUD_QUEUE } from '../fraud/constants';
 
 const CTX = 'OcrProcessor';
 
@@ -22,6 +23,7 @@ export class OcrProcessor extends WorkerHost {
     private readonly logger: AppLogger,
     @InjectQueue('ocr-paddle') private readonly paddleQueue: Queue,
     @InjectQueue('ocr-surya') private readonly suryaQueue: Queue,
+    @InjectQueue(FRAUD_QUEUE) private readonly fraudQueue: Queue,
   ) {
     super();
   }
@@ -76,15 +78,18 @@ export class OcrProcessor extends WorkerHost {
       // Overwrite original with preprocessed version (autoOrient + HEIC→JPEG)
       await writeFile(originalPath, processed);
 
+      // Copy image for fraud analysis — OCR pipeline deletes the original after merge,
+      // fraud analysis runs in parallel and needs the file independently
+      const fraudImagePath = `${originalPath}.fraud`;
+      await copyFile(originalPath, fraudImagePath);
+
       await Promise.all([
-        this.paddleQueue.add('ocr-paddle', {
-          photoId,
-          imagePath: originalPath,
-        }),
+        this.paddleQueue.add('ocr-paddle', { photoId, imagePath: originalPath }),
         this.suryaQueue.add('ocr-surya', { photoId, imagePath: originalPath }),
+        this.fraudQueue.add(FRAUD_QUEUE, { photoId, imagePath: fraudImagePath }),
       ]);
 
-      this.logger.log('Photo preprocessed and dispatched to GPU workers', CTX, {
+      this.logger.log('Photo preprocessed and dispatched to OCR workers + fraud queue', CTX, {
         photoId,
         mimeType,
         durationMs: Date.now() - start,

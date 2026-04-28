@@ -108,7 +108,8 @@ export class GpuFallbackService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      if (!photo || photo.status === 'COMPLETED' || photo.status === 'FAILED') {
+      const terminalStatuses = ['COMPLETED', 'FAILED', 'FLAGGED'];
+      if (!photo || terminalStatuses.includes(photo.status)) {
         this.logger.debug('Fallback skipped — photo already in terminal state', CTX, {
           photoId,
           status: photo?.status ?? 'not found',
@@ -139,6 +140,14 @@ export class GpuFallbackService implements OnModuleInit, OnModuleDestroy {
         });
 
         try {
+          // Check if fraud analysis already finished with a non-clean verdict.
+          // Using .catch(() => null) so a transient DB error never aborts the fallback merge.
+          const existingFraud = await this.prisma.fraudAnalysis
+            .findUnique({ where: { photoId }, select: { verdict: true } })
+            .catch(() => null);
+          const photoStatus =
+            existingFraud && existingFraud.verdict !== 'CLEAN' ? 'FLAGGED' : 'COMPLETED';
+
           await this.prisma.$transaction([
             this.prisma.mergedOcrResult.create({
               data: {
@@ -151,13 +160,14 @@ export class GpuFallbackService implements OnModuleInit, OnModuleDestroy {
             }),
             this.prisma.photo.update({
               where: { id: photoId },
-              data: { status: 'COMPLETED' },
+              data: { status: photoStatus },
             }),
           ]);
 
           this.logger.log('Photo completed via single-source fallback', CTX, {
             photoId,
             usedSource: otherResult.source,
+            status: photoStatus,
           });
 
           await this.cleanupFile(photoId);

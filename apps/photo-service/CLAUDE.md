@@ -55,9 +55,10 @@ GpuFallbackService (QueueEvents listeners)
 
 ## DB Models
 
-- **Photo**: id, originalName, mimeType, size, sha256 (unique), originalPath, status (PENDING→PROCESSING→COMPLETED/FAILED), jobId
+- **Photo**: id, originalName, mimeType, size, sha256 (unique), originalPath, status (PENDING→PROCESSING→COMPLETED/FAILED/FLAGGED), jobId
 - **OcrResult**: photoId, source (paddle/surya), rawText, data (JSON)
 - **MergedOcrResult**: photoId (unique), mergedText, confidenceScore, mergeStrategy (direct/gemini-arbitrated/single-source), selectedSource
+- **FraudAnalysis**: photoId (unique), score (0-1), verdict (CLEAN/SUSPICIOUS/LIKELY_FORGED), flags[], metadataResult, elaResult, geminiResult, durationMs
 
 ## Queues
 
@@ -67,8 +68,18 @@ GpuFallbackService (QueueEvents listeners)
 | `ocr-paddle` | 2min | External GPU worker |
 | `ocr-surya` | 2min | External GPU worker |
 | `ocr-results` | default | OcrResultsProcessor (in-app) |
+| `fraud` | default | FraudProcessor (in-app) |
 
 All queues: 3 attempts, exponential backoff (1s base).
+
+## Fraud Detection
+
+Runs in parallel with OCR (dispatched from OcrProcessor alongside paddle/surya).
+Pipeline: MetadataAnalyzer → ElaAnalyzer → GeminiFraudAnalyzer (skipped if early score < 0.05).
+Weights: Gemini 75%, ELA 15%, Metadata 10%.
+Verdicts: CLEAN (<0.3), SUSPICIOUS (0.3-0.6), LIKELY_FORGED (>0.6).
+SUSPICIOUS/LIKELY_FORGED → photo status = FLAGGED.
+File handling: OcrProcessor copies image to `<path>.fraud`, FraudProcessor deletes copy after analysis.
 
 ## Env Variables
 

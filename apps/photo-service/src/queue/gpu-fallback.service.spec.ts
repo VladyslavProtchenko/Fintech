@@ -27,6 +27,7 @@ describe('GpuFallbackService', () => {
       photo: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
       ocrResult: { findFirst: jest.fn() },
       mergedOcrResult: { create: jest.fn() },
+      fraudAnalysis: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn().mockResolvedValue([{}, {}]),
     };
 
@@ -76,9 +77,17 @@ describe('GpuFallbackService', () => {
       expect(prisma.photo.findUnique).not.toHaveBeenCalled();
     });
 
-    it('does nothing when photo is already in terminal state', async () => {
+    it('does nothing when photo is already in terminal state (COMPLETED)', async () => {
       mockPaddleQueue.getJob.mockResolvedValue(makeJob('photo-1', 3, 3));
       prisma.photo.findUnique.mockResolvedValue({ status: 'COMPLETED' });
+
+      await (service as any).onGpuJobFailed('job-1', 'paddle');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when photo is already in terminal state (FLAGGED)', async () => {
+      mockPaddleQueue.getJob.mockResolvedValue(makeJob('photo-1', 3, 3));
+      prisma.photo.findUnique.mockResolvedValue({ status: 'FLAGGED' });
 
       await (service as any).onGpuJobFailed('job-1', 'paddle');
       expect(prisma.$transaction).not.toHaveBeenCalled();

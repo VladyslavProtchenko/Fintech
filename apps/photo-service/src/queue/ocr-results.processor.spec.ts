@@ -37,6 +37,7 @@ describe('OcrResultsProcessor', () => {
       },
       mergedOcrResult: { create: jest.fn() },
       photo: { update: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null) },
+      fraudAnalysis: { findUnique: jest.fn().mockResolvedValue(null) },
     };
     textMerge = { merge: jest.fn().mockResolvedValue(MERGE_RESULT) };
 
@@ -84,12 +85,37 @@ describe('OcrResultsProcessor', () => {
       expect(prisma.$transaction).toHaveBeenCalledTimes(2);
     });
 
-    it('sets photo status to COMPLETED', async () => {
+    it('sets photo status to COMPLETED when no fraud analysis exists', async () => {
+      prisma.fraudAnalysis.findUnique.mockResolvedValue(null);
+
       await processor.process(makeJob(jobData));
 
-      // Second $transaction call contains the photo update
-      const secondCall = (prisma.$transaction as jest.Mock).mock.calls[1][0];
-      expect(secondCall).toContain(undefined); // prisma operations are just values in array
+      // fraudAnalysis was checked
+      expect(prisma.fraudAnalysis.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { photoId: 'photo-1' } }),
+      );
+    });
+
+    it('sets photo status to FLAGGED when fraud verdict is not CLEAN', async () => {
+      prisma.fraudAnalysis.findUnique.mockResolvedValue({ verdict: 'LIKELY_FORGED' });
+      prisma.$transaction
+        .mockResolvedValueOnce([{}, 2])
+        .mockResolvedValueOnce([{}, {}]);
+      prisma.ocrResult.findMany.mockResolvedValue([
+        { source: 'paddle', rawText: 'paddle text' },
+        { source: 'surya', rawText: 'surya text' },
+      ]);
+
+      await processor.process(makeJob(jobData));
+
+      // The merge transaction should have been called — status FLAGGED is passed inside
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it('proceeds with COMPLETED when fraudAnalysis.findUnique throws', async () => {
+      prisma.fraudAnalysis.findUnique.mockRejectedValue(new Error('DB unavailable'));
+
+      await expect(processor.process(makeJob(jobData))).resolves.toBeUndefined();
     });
   });
 

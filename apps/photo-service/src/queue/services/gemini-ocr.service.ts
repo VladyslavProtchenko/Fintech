@@ -1,44 +1,33 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { GoogleGenAI } from '@google/genai';
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { AppLogger } from '@fintech/shared-logger';
+import { GeminiClientService } from './gemini-client.service';
 
 const CTX = 'GeminiOcrService';
 
 @Injectable()
 export class GeminiOcrService {
-  private readonly client: GoogleGenAI | null;
-
   constructor(
-    private readonly config: ConfigService,
+    private readonly gemini: GeminiClientService,
     private readonly logger: AppLogger,
-  ) {
-    const apiKey = this.config.get<string>('GEMINI_API_KEY');
-    if (!apiKey) {
-      this.logger.warn('GEMINI_API_KEY is not set — Gemini arbitration disabled', CTX);
-      this.client = null;
-    } else {
-      this.client = new GoogleGenAI({ apiKey });
-    }
-  }
+  ) {}
 
   get isAvailable(): boolean {
-    return this.client !== null;
+    return this.gemini.isAvailable;
   }
 
   async extractText(imagePath: string): Promise<string> {
-    if (!this.client) throw new Error('GEMINI_API_KEY is not set');
+    if (!this.gemini.client) throw new Error('GEMINI_API_KEY is not set');
     const start = Date.now();
 
     this.logger.debug('Gemini extractText started', CTX, { imagePath });
 
     try {
-      const imageData = readFileSync(imagePath);
+      const imageData = await readFile(imagePath);
       const base64 = imageData.toString('base64');
 
-      const response = await this.client.models.generateContent({
-        model: 'gemini-3-flash-preview',
+      const response = await this.gemini.client!.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: [
           {
             role: 'user',
@@ -84,7 +73,7 @@ export class GeminiOcrService {
   }
 
   async mergeTexts(textA: string, textB: string): Promise<string> {
-    if (!this.client) throw new Error('GEMINI_API_KEY is not set');
+    if (!this.gemini.client) throw new Error('GEMINI_API_KEY is not set');
     const start = Date.now();
 
     this.logger.debug('Gemini mergeTexts started', CTX, {
@@ -93,7 +82,7 @@ export class GeminiOcrService {
     });
 
     try {
-      const response = await this.client.models.generateContent({
+      const response = await this.gemini.client!.models.generateContent({
         model: 'gemini-2.5-flash',
         config: { maxOutputTokens: 8192 },
         contents: [

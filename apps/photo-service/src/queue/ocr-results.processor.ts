@@ -127,6 +127,15 @@ export class OcrResultsProcessor extends WorkerHost {
     }
 
     try {
+      // If fraud analysis already finished and found issues, respect its verdict.
+      // Using .catch(() => null) so a transient DB error here never aborts the OCR merge —
+      // fraud processor's own updateMany will correct the status if needed.
+      const existingFraud = await this.prisma.fraudAnalysis
+        .findUnique({ where: { photoId }, select: { verdict: true } })
+        .catch(() => null);
+      const photoStatus =
+        existingFraud && existingFraud.verdict !== 'CLEAN' ? 'FLAGGED' : 'COMPLETED';
+
       await this.prisma.$transaction([
         this.prisma.mergedOcrResult.create({
           data: {
@@ -139,7 +148,7 @@ export class OcrResultsProcessor extends WorkerHost {
         }),
         this.prisma.photo.update({
           where: { id: photoId },
-          data: { status: 'COMPLETED' },
+          data: { status: photoStatus },
         }),
       ]);
 
@@ -149,6 +158,7 @@ export class OcrResultsProcessor extends WorkerHost {
         confidence: merged.confidenceScore.toFixed(2),
         selectedSource: merged.selectedSource,
         mergedTextLength: merged.mergedText.length,
+        status: photoStatus,
       });
 
       await this.cleanupFile(photoId);

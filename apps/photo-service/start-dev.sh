@@ -17,6 +17,8 @@ docker compose up -d --wait
 
 echo "=== Running Prisma migrations ==="
 npx prisma migrate deploy 2>/dev/null || npx prisma migrate dev --name init
+echo "=== Generating Prisma client ==="
+npx prisma generate
 
 echo "=== Starting NestJS app ==="
 npm run start:dev &
