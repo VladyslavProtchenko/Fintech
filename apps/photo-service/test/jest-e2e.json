@@ -1,0 +1,20 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.ts$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^@fintech/shared-config$": "<rootDir>/../../../packages/shared-config/src/index.ts",
+    "^@fintech/shared-logger$": "<rootDir>/../../../packages/shared-logger/src/index.ts",
+    "^@fintech/shared-errors$": "<rootDir>/../../../packages/shared-errors/src/index.ts",
+    "^@fintech/shared-prisma$": "<rootDir>/../../../packages/shared-prisma/src/index.ts",
+    "^@fintech/shared-redis$": "<rootDir>/../../../packages/shared-redis/src/index.ts",
+    "^@fintech/shared-queue$": "<rootDir>/../../../packages/shared-queue/src/index.ts",
+    "^@fintech/shared-health$": "<rootDir>/../../../packages/shared-health/src/index.ts",
+    "^@nestjs/terminus$": "<rootDir>/../node_modules/@nestjs/terminus"
+  },
+  "testTimeout": 120000
+}

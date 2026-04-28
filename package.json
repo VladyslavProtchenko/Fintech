@@ -1,0 +1,20 @@
+{
+  "name": "fintech",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "dev": "turbo run dev --parallel"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-prettier": "^5.2.2",
+    "globals": "^16.0.0",
+    "turbo": "latest",
+    "typescript-eslint": "^8.20.0"
+  },
+  "packageManager": "pnpm@10.33.2"
+}

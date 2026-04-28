@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  photo-service:
+    build:
+      context: .
+      dockerfile: apps/photo-service/Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - apps/photo-service/.env.example
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/photo_service
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    volumes:
+      - photo_uploads:/app/apps/photo-service/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  otp-service:
+    build:
+      context: .
+      dockerfile: apps/otp-service/Dockerfile
+    ports:
+      - "3001:3001"
+    env_file:
+      - apps/otp-service/.env.example
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/otp_service
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  photo_uploads:

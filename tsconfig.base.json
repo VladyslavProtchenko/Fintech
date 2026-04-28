@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2023",
+    "sourceMap": true,
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@fintech/shared-config": ["${configDir}/packages/shared-config/src/index.ts"],
+      "@fintech/shared-logger": ["${configDir}/packages/shared-logger/src/index.ts"],
+      "@fintech/shared-errors": ["${configDir}/packages/shared-errors/src/index.ts"],
+      "@fintech/shared-prisma": ["${configDir}/packages/shared-prisma/src/index.ts"],
+      "@fintech/shared-redis": ["${configDir}/packages/shared-redis/src/index.ts"],
+      "@fintech/shared-queue": ["${configDir}/packages/shared-queue/src/index.ts"],
+      "@fintech/shared-health": ["${configDir}/packages/shared-health/src/index.ts"]
+    }
+  }
+}

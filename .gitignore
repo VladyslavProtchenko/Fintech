@@ -4,3 +4,9 @@ dist/
 .env
 *.log
 coverage/
+.turbo/
+*.turbo
+uploads/
+__pycache__/
+*.pyc
+.venv/
