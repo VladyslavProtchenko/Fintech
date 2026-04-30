@@ -10,3 +10,15 @@ uploads/
 __pycache__/
 *.pyc
 .venv/
+
+# Playwright screenshots and session files
+.playwright-mcp/
+docs/screenshots/
+
+# Root-level screenshots (use docs/screenshots/ instead)
+/*.png
+/*.jpg
+
+# Build artifacts
+tsconfig.tsbuildinfo
+.next/

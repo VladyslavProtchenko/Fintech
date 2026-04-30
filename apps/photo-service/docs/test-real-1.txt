@@ -23,8 +23,30 @@ Contact PhonePe Support
 
 
 результат
-"Transaction Successful\n14:54\nPaid to\nSanjay Sinwar\nxxxx0123\nAirtel
-  Payments Bank Limited\nBanking Name\nParmar Digvijaysinh\n2000\nTransfer Details\nTransaction
-  ID\nT2604211307353107049046\nDebited from\nXXXXXXXXXXX4170\nUTR: 159843428099\nSend
-  Again\nView\nHistory\nSplit\nExpense\nShare\nReceipt\nContact PhonePe Support" 
+"Transaction Successful
+14:54
+Paid to
+Sanjay Sinwar
+xxxx0123
+Airtel
+  Payments Bank Limited
+  Banking Name
+  Parmar Digvijaysinh
+  2000
+  Transfer Details
+  Transaction
+  ID
+  T2604211307353107049046
+  Debited from
+  XXXXXXXXXXX4170
+  UTR: 159843428099
+  Send
+  Again
+  View
+  History
+  Split
+  Expense
+  Share
+  Receipt
+  Contact PhonePe Support" 
 
