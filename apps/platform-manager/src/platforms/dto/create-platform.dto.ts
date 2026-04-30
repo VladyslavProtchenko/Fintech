@@ -15,5 +15,6 @@ export class CreatePlatformDto {
   @ApiPropertyOptional({ example: 'citrus.localhost' })
   @IsString()
   @IsOptional()
+  @Matches(/^[a-z0-9.-]+$/, { message: 'domain must contain only lowercase letters, numbers, dots, hyphens' })
   domain?: string;
 }

@@ -1,4 +1,5 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePlatformDto } from './dto/create-platform.dto';
 import { Platform } from '../generated/prisma/client';
@@ -10,21 +11,21 @@ export class PlatformsService {
   async create(dto: CreatePlatformDto): Promise<Platform> {
     const domain = dto.domain ?? `${dto.slug}.localhost`;
 
-    const existing = await this.prisma.platform.findFirst({
-      where: { OR: [{ slug: dto.slug }, { domain }] },
-    });
-    if (existing) {
-      throw new ConflictException(`Platform with slug "${dto.slug}" already exists`);
+    try {
+      const platform = await this.prisma.platform.create({
+        data: { slug: dto.slug, domain, prompt: dto.prompt, status: 'CREATING' },
+      });
+
+      // TODO: kick off async deploy pipeline
+      // this.deploy(platform).catch(err => this.markFailed(platform.id, err.message));
+
+      return platform;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(`Platform with slug "${dto.slug}" already exists`);
+      }
+      throw e;
     }
-
-    const platform = await this.prisma.platform.create({
-      data: { slug: dto.slug, domain, prompt: dto.prompt, status: 'CREATING' },
-    });
-
-    // TODO: kick off async deploy pipeline
-    // this.deploy(platform).catch(err => this.markFailed(platform.id, err.message));
-
-    return platform;
   }
 
   findAll(): Promise<Platform[]> {
@@ -36,6 +37,13 @@ export class PlatformsService {
   }
 
   async remove(slug: string): Promise<void> {
-    await this.prisma.platform.delete({ where: { slug } });
+    try {
+      await this.prisma.platform.delete({ where: { slug } });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw new NotFoundException(`Platform "${slug}" not found`);
+      }
+      throw e;
+    }
   }
 }
