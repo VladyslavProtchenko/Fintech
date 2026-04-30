@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 
 const config: NextConfig = {
-  // Server-side env vars (not exposed to client)
+  output: 'standalone',
   serverExternalPackages: [],
 };
 

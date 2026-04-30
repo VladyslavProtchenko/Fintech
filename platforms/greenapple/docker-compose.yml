@@ -1,0 +1,51 @@
+name: greenapple
+
+services:
+  greenapple-api:
+    build:
+      context: ../../../
+      dockerfile: platforms/greenapple/api/Dockerfile
+    container_name: greenapple-api
+    environment:
+      NODE_ENV: development
+      PORT: 3010
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/greenapple_db
+      JWT_SECRET: greenapple-dev-secret-key-minimum-32-chars-required
+      JWT_EXPIRES_IN: 7d
+      PAYMENT_API_URL: http://payment-service:3004
+      PAYMENT_API_KEY: dev-api-key-12345
+      PLATFORM_ID: greenapple
+      FRONTEND_URL: http://greenapple.localhost
+    networks:
+      - caddy
+      - internal
+    labels:
+      caddy: greenapple.localhost
+      caddy.handle_path: /api/*
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 3010}}"
+      caddy.tls: "off"
+
+  greenapple-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: greenapple-web
+    environment:
+      API_URL: http://greenapple-api:3010
+      NEXT_PUBLIC_APP_NAME: GreenApple
+      NEXT_PUBLIC_APP_URL: http://greenapple.localhost
+    networks:
+      - caddy
+      - internal
+    labels:
+      caddy: greenapple.localhost
+      caddy.handle.0_reverse_proxy: "{{upstreams 3011}}"
+      caddy.tls: "off"
+    depends_on:
+      - greenapple-api
+
+networks:
+  caddy:
+    external: true
+  internal:
+    driver: bridge

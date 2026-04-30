@@ -1,18 +1,37 @@
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY packages/payment-sdk ./packages/payment-sdk
-COPY apps/orange-api ./apps/orange-api
-RUN corepack enable && pnpm install --frozen-lockfile
-RUN pnpm turbo build --filter=@fintech/orange-api
+FROM node:22-alpine AS builder
 
-FROM node:20-alpine
+RUN corepack enable
+
 WORKDIR /app
-COPY --from=builder /app/apps/orange-api/dist ./dist
-COPY --from=builder /app/apps/orange-api/prisma ./prisma
-COPY --from=builder /app/apps/orange-api/prisma.config.ts ./
-COPY --from=builder /app/apps/orange-api/package.json ./
-COPY --from=builder /app/apps/orange-api/node_modules ./node_modules
-COPY --from=builder /app/apps/orange-api/src/generated ./generated
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/payment-sdk ./packages/payment-sdk
+COPY platforms/orange/api ./platforms/orange/api
+
+RUN pnpm install --frozen-lockfile
+
+WORKDIR /app/platforms/orange/api
+RUN npx prisma generate
+RUN pnpm build
+
+
+FROM node:22-alpine AS production
+
+RUN corepack enable
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/platforms/orange/api/dist ./platforms/orange/api/dist
+COPY --from=builder /app/platforms/orange/api/src/generated ./platforms/orange/api/src/generated
+COPY platforms/orange/api/package.json ./platforms/orange/api/package.json
+COPY platforms/orange/api/prisma ./platforms/orange/api/prisma
+
+RUN pnpm install --frozen-lockfile --prod
+
+WORKDIR /app/platforms/orange/api
+
 EXPOSE 3012
+
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]

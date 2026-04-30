@@ -1,0 +1,51 @@
+name: orange
+
+services:
+  orange-api:
+    build:
+      context: ../../../
+      dockerfile: platforms/orange/api/Dockerfile
+    container_name: orange-api
+    environment:
+      NODE_ENV: development
+      PORT: 3012
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/orange_db
+      JWT_SECRET: orange-super-secret-key-change-in-production-32chars
+      JWT_EXPIRES_IN: 7d
+      PAYMENT_API_URL: http://payment-service:3004
+      PAYMENT_API_KEY: dev-api-key-12345
+      PLATFORM_ID: orange
+      FRONTEND_URL: http://orange.localhost
+    networks:
+      - caddy
+      - internal
+    labels:
+      caddy: orange.localhost
+      caddy.handle_path: /api/*
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 3012}}"
+      caddy.tls: "off"
+
+  orange-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: orange-web
+    environment:
+      API_URL: http://orange-api:3012
+      NEXT_PUBLIC_APP_NAME: Orange Pay
+      NEXT_PUBLIC_APP_URL: http://orange.localhost
+    networks:
+      - caddy
+      - internal
+    labels:
+      caddy: orange.localhost
+      caddy.handle.0_reverse_proxy: "{{upstreams 3013}}"
+      caddy.tls: "off"
+    depends_on:
+      - orange-api
+
+networks:
+  caddy:
+    external: true
+  internal:
+    driver: bridge

@@ -1,4 +1,17 @@
 services:
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:2.9-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "2019:2019"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - caddy_data:/data
+    networks:
+      - caddy
+    restart: unless-stopped
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -14,6 +27,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - caddy
 
   redis:
     image: redis:7-alpine
@@ -26,6 +41,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - caddy
 
   photo-service:
     build:
@@ -46,6 +63,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - caddy
 
   otp-service:
     build:
@@ -64,6 +83,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - caddy
 
   payment-service:
     build:
@@ -78,69 +99,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - caddy
 
-  greenapple-api:
-    build:
-      context: .
-      dockerfile: platforms/greenapple/api/Dockerfile
-    ports:
-      - "3010:3010"
-    env_file:
-      - apps/greenapple-api/.env.example
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/greenapple_db
-      PAYMENT_API_URL: http://payment-service:3004
-    depends_on:
-      postgres:
-        condition: service_healthy
-      payment-service:
-        condition: service_started
-
-  greenapple-web:
-    build:
-      context: platforms/greenapple/web
-      dockerfile: Dockerfile
-    ports:
-      - "3011:3011"
-    environment:
-      API_URL: http://greenapple-api:3010
-      NEXT_PUBLIC_APP_NAME: GreenApple
-    depends_on:
-      - greenapple-api
-
-  orange-api:
-    build:
-      context: .
-      dockerfile: platforms/orange/api/Dockerfile
-    ports:
-      - "3012:3012"
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/orange_db
-      JWT_SECRET: ${ORANGE_JWT_SECRET}
-      PAYMENT_API_URL: http://payment-service:3004
-      PAYMENT_API_KEY: ${PAYMENT_API_KEY}
-      PLATFORM_ID: orange
-      FRONTEND_URL: http://localhost:3013
-      PORT: 3012
-    depends_on:
-      postgres:
-        condition: service_healthy
-      payment-service:
-        condition: service_started
-
-  orange-web:
-    build:
-      context: platforms/orange/web
-      dockerfile: Dockerfile
-    ports:
-      - "3013:3013"
-    environment:
-      API_URL: http://orange-api:3012
-      NEXT_PUBLIC_APP_NAME: Orange Pay
-    depends_on:
-      - orange-api
+networks:
+  caddy:
+    external: true
 
 volumes:
   postgres_data:
   redis_data:
   photo_uploads:
+  caddy_data:
