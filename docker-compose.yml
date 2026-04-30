@@ -65,6 +65,20 @@ services:
       redis:
         condition: service_healthy
 
+  payment-service:
+    build:
+      context: .
+      dockerfile: apps/payment-service/Dockerfile
+    ports:
+      - "3004:3004"
+    env_file:
+      - apps/payment-service/.env.example
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/payment_service
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:

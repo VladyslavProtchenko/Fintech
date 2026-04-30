@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TxType {
+  TOPUP
+  TRANSFER
+  WITHDRAWAL
+}
+
+enum TxStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model Client {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  wallet    Wallet?
+  createdAt DateTime @default(now())
+}
+
+model Wallet {
+  id        String        @id @default(uuid())
+  clientId  String        @unique
+  client    Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  balance   Decimal       @default(0) @db.Decimal(19, 4)
+  outgoing  Transaction[] @relation("FromWallet")
+  incoming  Transaction[] @relation("ToWallet")
+  createdAt DateTime      @default(now())
+}
+
+model Transaction {
+  id             String    @id @default(uuid())
+  fromWalletId   String?
+  toWalletId     String?
+  fromWallet     Wallet?   @relation("FromWallet", fields: [fromWalletId], references: [id])
+  toWallet       Wallet?   @relation("ToWallet", fields: [toWalletId], references: [id])
+  amount         Decimal   @db.Decimal(19, 4)
+  type           TxType
+  status         TxStatus  @default(PENDING)
+  idempotencyKey String    @unique
+  createdAt      DateTime  @default(now())
+
+  @@index([fromWalletId, createdAt(sort: Desc)])
+  @@index([toWalletId, createdAt(sort: Desc)])
+}
