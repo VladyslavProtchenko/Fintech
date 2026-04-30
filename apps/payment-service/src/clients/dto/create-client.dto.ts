@@ -10,4 +10,9 @@ export class CreateClientDto {
   @IsString()
   @MinLength(2)
   name!: string;
+
+  @ApiProperty({ example: 'acme', description: 'Platform identifier for tenant isolation' })
+  @IsString()
+  @MinLength(1)
+  platformId!: string;
 }

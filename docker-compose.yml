@@ -79,6 +79,67 @@ services:
       postgres:
         condition: service_healthy
 
+  greenapple-api:
+    build:
+      context: .
+      dockerfile: apps/greenapple-api/Dockerfile
+    ports:
+      - "3010:3010"
+    env_file:
+      - apps/greenapple-api/.env.example
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/greenapple_db
+      PAYMENT_API_URL: http://payment-service:3004
+    depends_on:
+      postgres:
+        condition: service_healthy
+      payment-service:
+        condition: service_started
+
+  greenapple-web:
+    build:
+      context: apps/greenapple-web
+      dockerfile: Dockerfile
+    ports:
+      - "3011:3011"
+    environment:
+      API_URL: http://greenapple-api:3010
+      NEXT_PUBLIC_APP_NAME: GreenApple
+    depends_on:
+      - greenapple-api
+
+  orange-api:
+    build:
+      context: .
+      dockerfile: apps/orange-api/Dockerfile
+    ports:
+      - "3012:3012"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/orange_db
+      JWT_SECRET: ${ORANGE_JWT_SECRET}
+      PAYMENT_API_URL: http://payment-service:3004
+      PAYMENT_API_KEY: ${PAYMENT_API_KEY}
+      PLATFORM_ID: orange
+      FRONTEND_URL: http://localhost:3013
+      PORT: 3012
+    depends_on:
+      postgres:
+        condition: service_healthy
+      payment-service:
+        condition: service_started
+
+  orange-web:
+    build:
+      context: apps/orange-web
+      dockerfile: Dockerfile
+    ports:
+      - "3013:3013"
+    environment:
+      API_URL: http://orange-api:3012
+      NEXT_PUBLIC_APP_NAME: Orange Pay
+    depends_on:
+      - orange-api
+
 volumes:
   postgres_data:
   redis_data:

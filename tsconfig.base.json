@@ -20,7 +20,8 @@
       "@fintech/shared-prisma": ["${configDir}/packages/shared-prisma/src/index.ts"],
       "@fintech/shared-redis": ["${configDir}/packages/shared-redis/src/index.ts"],
       "@fintech/shared-queue": ["${configDir}/packages/shared-queue/src/index.ts"],
-      "@fintech/shared-health": ["${configDir}/packages/shared-health/src/index.ts"]
+      "@fintech/shared-health": ["${configDir}/packages/shared-health/src/index.ts"],
+      "@fintech/payment-sdk": ["${configDir}/packages/payment-sdk/src/index.ts"]
     }
   }
 }

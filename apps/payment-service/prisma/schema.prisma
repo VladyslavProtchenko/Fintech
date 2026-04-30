@@ -20,11 +20,14 @@ enum TxStatus {
 }
 
 model Client {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String
-  wallet    Wallet?
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  email      String
+  name       String
+  platformId String   // isolates clients per platform (e.g. "acme", "bolt")
+  wallet     Wallet?
+  createdAt  DateTime @default(now())
+
+  @@unique([email, platformId])
 }
 
 model Wallet {
