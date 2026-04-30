@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Platform {
+  id         String         @id @default(uuid())
+  slug       String         @unique
+  domain     String         @unique
+  prompt     String
+  status     PlatformStatus @default(CREATING)
+  siteUrl    String?
+  swaggerUrl String?
+  errorMsg   String?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+}
+
+enum PlatformStatus {
+  CREATING
+  BUILDING
+  RUNNING
+  STOPPED
+  FAILED
+}
