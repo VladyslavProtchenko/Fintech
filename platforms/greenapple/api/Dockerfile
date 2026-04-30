@@ -27,8 +27,9 @@ COPY --from=builder /app/platforms/greenapple/api/dist ./platforms/greenapple/ap
 COPY --from=builder /app/platforms/greenapple/api/src/generated ./platforms/greenapple/api/src/generated
 COPY platforms/greenapple/api/package.json ./platforms/greenapple/api/package.json
 COPY platforms/greenapple/api/prisma ./platforms/greenapple/api/prisma
+COPY platforms/greenapple/api/prisma.config.ts ./platforms/greenapple/api/prisma.config.ts
 
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile
 
 WORKDIR /app/platforms/greenapple/api
 

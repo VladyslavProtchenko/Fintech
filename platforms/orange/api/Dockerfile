@@ -27,8 +27,9 @@ COPY --from=builder /app/platforms/orange/api/dist ./platforms/orange/api/dist
 COPY --from=builder /app/platforms/orange/api/src/generated ./platforms/orange/api/src/generated
 COPY platforms/orange/api/package.json ./platforms/orange/api/package.json
 COPY platforms/orange/api/prisma ./platforms/orange/api/prisma
+COPY platforms/orange/api/prisma.config.ts ./platforms/orange/api/prisma.config.ts
 
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --frozen-lockfile
 
 WORKDIR /app/platforms/orange/api
 

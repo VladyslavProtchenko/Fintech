@@ -3,7 +3,7 @@ name: greenapple
 services:
   greenapple-api:
     build:
-      context: ../../../
+      context: ../../
       dockerfile: platforms/greenapple/api/Dockerfile
     container_name: greenapple-api
     environment:
@@ -20,10 +20,9 @@ services:
       - caddy
       - internal
     labels:
-      caddy: greenapple.localhost
+      caddy: "http://greenapple.localhost"
       caddy.handle_path: /api/*
       caddy.handle_path.0_reverse_proxy: "{{upstreams 3010}}"
-      caddy.tls: "off"
 
   greenapple-web:
     build:
@@ -38,9 +37,8 @@ services:
       - caddy
       - internal
     labels:
-      caddy: greenapple.localhost
+      caddy: "http://greenapple.localhost"
       caddy.handle.0_reverse_proxy: "{{upstreams 3011}}"
-      caddy.tls: "off"
     depends_on:
       - greenapple-api
 

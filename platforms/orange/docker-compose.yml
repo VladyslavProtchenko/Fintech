@@ -3,7 +3,7 @@ name: orange
 services:
   orange-api:
     build:
-      context: ../../../
+      context: ../../
       dockerfile: platforms/orange/api/Dockerfile
     container_name: orange-api
     environment:
@@ -20,10 +20,9 @@ services:
       - caddy
       - internal
     labels:
-      caddy: orange.localhost
+      caddy: "http://orange.localhost"
       caddy.handle_path: /api/*
       caddy.handle_path.0_reverse_proxy: "{{upstreams 3012}}"
-      caddy.tls: "off"
 
   orange-web:
     build:
@@ -38,9 +37,8 @@ services:
       - caddy
       - internal
     labels:
-      caddy: orange.localhost
+      caddy: "http://orange.localhost"
       caddy.handle.0_reverse_proxy: "{{upstreams 3013}}"
-      caddy.tls: "off"
     depends_on:
       - orange-api
 

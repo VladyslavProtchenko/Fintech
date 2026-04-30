@@ -120,7 +120,6 @@ services:
       caddy: greenapple.localhost
       caddy.handle_path: /api/*
       caddy.handle_path.0_reverse_proxy: "{{upstreams 3000}}"
-      caddy.tls: "off"
 
   greenapple-web:
     build: ./web
@@ -133,7 +132,6 @@ services:
     labels:
       caddy: greenapple.localhost
       caddy.reverse_proxy: "{{upstreams 3000}}"
-      caddy.tls: "off"
 
 networks:
   caddy:
@@ -498,7 +496,6 @@ services:
       caddy: "<slug>.localhost"
       caddy.handle_path: "/api/*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 3000}}"
-      caddy.tls: "off"
 
   <slug>-web:
     build: ./web
@@ -512,7 +509,6 @@ services:
     labels:
       caddy: "<slug>.localhost"
       caddy.reverse_proxy: "{{upstreams 3000}}"
-      caddy.tls: "off"
 
 networks:
   caddy:
