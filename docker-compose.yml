@@ -82,7 +82,7 @@ services:
   greenapple-api:
     build:
       context: .
-      dockerfile: apps/greenapple-api/Dockerfile
+      dockerfile: platforms/greenapple/api/Dockerfile
     ports:
       - "3010:3010"
     env_file:
@@ -98,7 +98,7 @@ services:
 
   greenapple-web:
     build:
-      context: apps/greenapple-web
+      context: platforms/greenapple/web
       dockerfile: Dockerfile
     ports:
       - "3011:3011"
@@ -111,7 +111,7 @@ services:
   orange-api:
     build:
       context: .
-      dockerfile: apps/orange-api/Dockerfile
+      dockerfile: platforms/orange/api/Dockerfile
     ports:
       - "3012:3012"
     environment:
@@ -130,7 +130,7 @@ services:
 
   orange-web:
     build:
-      context: apps/orange-web
+      context: platforms/orange/web
       dockerfile: Dockerfile
     ports:
       - "3013:3013"

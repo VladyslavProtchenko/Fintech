@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40">
+  <circle cx="18" cy="22" r="13" fill="#f97316"/>
+  <path d="M18 9 C18 9 20 7 22 8 C24 9 22 11 22 11 C22 11 20 10 18 9Z" fill="#22c55e"/>
+  <line x1="18" y1="13" x2="18" y2="31" stroke="#fff" stroke-width="1.2" opacity="0.5"/>
+  <line x1="10" y1="17" x2="26" y2="27" stroke="#fff" stroke-width="1.2" opacity="0.5"/>
+  <line x1="26" y1="17" x2="10" y2="27" stroke="#fff" stroke-width="1.2" opacity="0.5"/>
+  <text x="40" y="27" font-family="system-ui, sans-serif" font-size="19" font-weight="700" fill="#ea580c">Orange</text>
+  <text x="106" y="27" font-family="system-ui, sans-serif" font-size="19" font-weight="400" fill="#f97316">Pay</text>
+</svg>

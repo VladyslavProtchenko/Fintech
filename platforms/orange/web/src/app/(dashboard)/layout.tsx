@@ -1,0 +1,58 @@
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import Image from 'next/image';
+import Link from 'next/link';
+import { logoutAction } from '@/actions/auth';
+
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('token')?.value;
+  if (!token) redirect('/login');
+
+  return (
+    <div className="min-h-screen flex bg-stone-50">
+      {/* Sidebar */}
+      <aside className="w-56 bg-white border-r border-stone-100 flex flex-col shrink-0">
+        <div className="px-5 py-5 border-b border-stone-100">
+          <Link href="/dashboard">
+            <Image src="/logo.svg" alt="Orange Pay" width={120} height={28} />
+          </Link>
+        </div>
+        <nav className="flex-1 p-3 space-y-1">
+          <SidebarLink href="/dashboard">Dashboard</SidebarLink>
+          <SidebarLink href="/deposit">Top Up</SidebarLink>
+          <SidebarLink href="/send">Transfer</SidebarLink>
+          <SidebarLink href="/history">Transactions</SidebarLink>
+        </nav>
+        <div className="p-3 border-t border-stone-100">
+          <form action={logoutAction}>
+            <button
+              type="submit"
+              className="w-full text-left px-3 py-2 text-sm text-stone-500 hover:text-stone-700 hover:bg-stone-50 rounded-lg transition-colors"
+            >
+              Sign Out
+            </button>
+          </form>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <main className="flex-1 p-8 max-w-4xl">{children}</main>
+    </div>
+  );
+}
+
+function SidebarLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center px-3 py-2 text-sm font-medium text-stone-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg transition-colors"
+    >
+      {children}
+    </Link>
+  );
+}
