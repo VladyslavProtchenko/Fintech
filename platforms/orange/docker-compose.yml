@@ -15,12 +15,12 @@ services:
       PAYMENT_API_URL: http://payment-service:3004
       PAYMENT_API_KEY: dev-api-key-12345
       PLATFORM_ID: orange
-      FRONTEND_URL: http://orange.localhost
+      FRONTEND_URL: http://orange.pay
     networks:
       - caddy
       - internal
     labels:
-      caddy: "http://orange.localhost"
+      caddy: "http://orange.pay"
       caddy.handle_path: /api/*
       caddy.handle_path.0_reverse_proxy: "{{upstreams 3012}}"
 
@@ -32,12 +32,12 @@ services:
     environment:
       API_URL: http://orange-api:3012
       NEXT_PUBLIC_APP_NAME: Orange Pay
-      NEXT_PUBLIC_APP_URL: http://orange.localhost
+      NEXT_PUBLIC_APP_URL: http://orange.pay
     networks:
       - caddy
       - internal
     labels:
-      caddy: "http://orange.localhost"
+      caddy: "http://orange.pay"
       caddy.handle.0_reverse_proxy: "{{upstreams 3013}}"
     depends_on:
       - orange-api

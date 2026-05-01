@@ -193,7 +193,7 @@ Create `platforms/<slug>/web/` following the spec. Key files:
 ### 7. Generate docker-compose.yml
 
 Create `platforms/<slug>/docker-compose.yml` using orange as the reference (`platforms/orange/docker-compose.yml`).
-Use Caddy labels so Caddy docker-proxy auto-detects and routes `<slug>.localhost`.
+Use Caddy labels so Caddy docker-proxy auto-detects and routes `<slug>.pay`.
 
 ```yaml
 name: <slug>
@@ -213,10 +213,10 @@ services:
       PAYMENT_API_URL: http://payment-service:3004
       PAYMENT_API_KEY: <from payment-service .env>
       PLATFORM_ID: <slug>
-      FRONTEND_URL: http://<slug>.localhost
+      FRONTEND_URL: http://<slug>.pay
     networks: [caddy, internal]
     labels:
-      caddy: "http://<slug>.localhost"
+      caddy: "http://<slug>.pay"
       caddy.handle_path: /api/*
       caddy.handle_path.0_reverse_proxy: "{{upstreams <apiPort>}}"
 
@@ -228,10 +228,10 @@ services:
     environment:
       API_URL: http://<slug>-api:<apiPort>
       NEXT_PUBLIC_APP_NAME: <displayName>
-      NEXT_PUBLIC_APP_URL: http://<slug>.localhost
+      NEXT_PUBLIC_APP_URL: http://<slug>.pay
     networks: [caddy, internal]
     labels:
-      caddy: "http://<slug>.localhost"
+      caddy: "http://<slug>.pay"
       caddy.handle.0_reverse_proxy: "{{upstreams <webPort>}}"
     depends_on: [<slug>-api]
 
@@ -279,7 +279,7 @@ curl -X POST http://localhost:3020/platforms \
 Then poll status until RUNNING:
 ```bash
 curl http://localhost:3020/platforms/<slug>/status
-# { "status": "RUNNING", "siteUrl": "http://<slug>.localhost", "swaggerUrl": "http://<slug>.localhost/api/docs" }
+# { "status": "RUNNING", "siteUrl": "http://<slug>.pay", "swaggerUrl": "http://<slug>.pay/api/docs" }
 ```
 
 Or use the platform-manager-web UI: http://localhost:3021/platforms/new

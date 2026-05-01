@@ -35,7 +35,7 @@ POST /platforms { slug, prompt }
    -> docker compose up -d
    -> sets status RUNNING
    -> returns { siteUrl, swaggerUrl }
-5. Caddy auto-detects containers via labels -> <slug>.localhost works
+5. Caddy auto-detects containers via labels -> <slug>.pay works
 ```
 
 ---
@@ -179,7 +179,7 @@ export class CreatePlatformDto {
   @MaxLength(50)
   displayName?: string;
 
-  @ApiPropertyOptional({ example: 'citrus.localhost' })
+  @ApiPropertyOptional({ example: 'citrus.pay' })
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -396,8 +396,8 @@ Change page description — not "Claude will generate", but "Deploy a pre-genera
 **`src/components/platform-card.tsx`** — remove `apiPort`/`webPort` display.
 Add `swaggerUrl` link when platform is RUNNING:
 ```
-Site: http://citrus.localhost
-Swagger: http://citrus.localhost/api/docs
+Site: http://citrus.pay
+Swagger: http://citrus.pay/api/docs
 ```
 
 **`src/app/platforms/new/page.tsx`** — update description text:
@@ -449,7 +449,7 @@ services:
     environment: ...
     networks: [caddy, internal]
     labels:
-      caddy: "http://<slug>.localhost"
+      caddy: "http://<slug>.pay"
       caddy.handle_path: /api/*
       caddy.handle_path.0_reverse_proxy: "{{upstreams <apiPort>}}"
   <slug>-web:
@@ -459,7 +459,7 @@ services:
     environment: ...
     networks: [caddy, internal]
     labels:
-      caddy: "http://<slug>.localhost"
+      caddy: "http://<slug>.pay"
       caddy.handle.0_reverse_proxy: "{{upstreams <webPort>}}"
 networks:
   caddy:
@@ -532,7 +532,7 @@ Orange is already deployed and running. Register it in platform-manager:
 ```bash
 curl -X POST http://localhost:3020/platforms \
   -H 'Content-Type: application/json' \
-  -d '{"slug": "orange", "displayName": "Orange Pay", "domain": "orange.localhost"}'
+  -d '{"slug": "orange", "displayName": "Orange Pay", "domain": "orange.pay"}'
 ```
 
 Expected: platform registered, deploy runs, status becomes RUNNING.
@@ -541,7 +541,7 @@ Since orange containers are already running, docker compose up is a no-op.
 Then verify:
 ```bash
 curl http://localhost:3020/platforms/orange/status
-# { "status": "RUNNING", "siteUrl": "http://orange.localhost", "swaggerUrl": "http://orange.localhost/api/docs" }
+# { "status": "RUNNING", "siteUrl": "http://orange.pay", "swaggerUrl": "http://orange.pay/api/docs" }
 ```
 
 ### Full test with new platform
@@ -550,8 +550,8 @@ curl http://localhost:3020/platforms/orange/status
 2. Verify files: `ls platforms/testpay/` -> `api/ web/ docker-compose.yml`
 3. Deploy: `POST /platforms { "slug": "testpay" }`
 4. Poll: `GET /platforms/testpay/status` until RUNNING
-5. Open: `http://testpay.localhost` -> site works
-6. Open: `http://testpay.localhost/api/docs` -> Swagger works
+5. Open: `http://testpay.pay` -> site works
+6. Open: `http://testpay.pay/api/docs` -> Swagger works
 
 ---
 

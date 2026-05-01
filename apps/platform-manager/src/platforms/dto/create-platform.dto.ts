@@ -18,7 +18,7 @@ export class CreatePlatformDto {
   @MaxLength(50)
   displayName?: string;
 
-  @ApiPropertyOptional({ example: 'citrus.localhost' })
+  @ApiPropertyOptional({ example: 'citrus.pay' })
   @IsOptional()
   @IsString()
   @MaxLength(100)
