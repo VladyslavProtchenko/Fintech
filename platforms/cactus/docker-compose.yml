@@ -15,12 +15,12 @@ services:
       PAYMENT_API_URL: http://payment-service:3004
       PAYMENT_API_KEY: dev-api-key-12345
       PLATFORM_ID: cactus
-      FRONTEND_URL: http://cactus.pay
+      FRONTEND_URL: http://cactus.localhost
     networks:
       - caddy
       - internal
     labels:
-      caddy: "http://cactus.pay"
+      caddy: "http://cactus.localhost"
       caddy.handle_path: /api/*
       caddy.handle_path.0_reverse_proxy: "{{upstreams 3014}}"
 
@@ -32,12 +32,12 @@ services:
     environment:
       API_URL: http://cactus-api:3014
       NEXT_PUBLIC_APP_NAME: Cactus Pay
-      NEXT_PUBLIC_APP_URL: http://cactus.pay
+      NEXT_PUBLIC_APP_URL: http://cactus.localhost
     networks:
       - caddy
       - internal
     labels:
-      caddy: "http://cactus.pay"
+      caddy: "http://cactus.localhost"
       caddy.handle.0_reverse_proxy: "{{upstreams 3015}}"
     depends_on:
       - cactus-api

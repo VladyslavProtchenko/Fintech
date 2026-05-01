@@ -30,7 +30,7 @@ export class PlatformsService {
   }
 
   async create(dto: CreatePlatformDto): Promise<Platform> {
-    const domain = dto.domain ?? `${dto.slug}.pay`;
+    const domain = dto.domain ?? `${dto.slug}.localhost`;
     const displayName = dto.displayName ?? this.toDisplayName(dto.slug);
 
     try {

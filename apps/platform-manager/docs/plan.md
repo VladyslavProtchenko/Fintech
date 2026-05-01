@@ -6,9 +6,9 @@ One prompt in → two links out.
 
 ```
 POST /platforms
-{ "prompt": "payment site for Valencia citrus company", "slug": "citrus", "domain": "citrus.pay" }
+{ "prompt": "payment site for Valencia citrus company", "slug": "citrus", "domain": "citrus.localhost" }
 
-→ { "site": "http://citrus.pay", "swagger": "http://citrus.pay/api/docs" }
+→ { "site": "http://citrus.localhost", "swagger": "http://citrus.localhost/api/docs" }
 ```
 
 The service automatically generates code, builds Docker images, starts containers, and registers the domain in Caddy.
@@ -41,8 +41,8 @@ The service automatically generates code, builds Docker images, starts container
          ↓                              ↓
   platforms/<slug>/              Caddy (port 80)
     api/ (NestJS)                  ↕ Admin API :2019
-    web/ (Next.js)                citrus.pay → citrus-web:3000
-    docker-compose.yml            orange.pay → orange-web:3000
+    web/ (Next.js)                citrus.localhost → citrus-web:3000
+    docker-compose.yml            orange.localhost → orange-web:3000
 ```
 
 ---
@@ -112,12 +112,12 @@ services:
       PAYMENT_API_URL: ${PAYMENT_API_URL}
       PAYMENT_API_KEY: ${PAYMENT_API_KEY}
       PLATFORM_ID: greenapple
-      FRONTEND_URL: http://greenapple.pay
+      FRONTEND_URL: http://greenapple.localhost
     networks:
       - caddy
       - internal
     labels:
-      caddy: greenapple.pay
+      caddy: greenapple.localhost
       caddy.handle_path: /api/*
       caddy.handle_path.0_reverse_proxy: "{{upstreams 3000}}"
 
@@ -125,12 +125,12 @@ services:
     build: ./web
     environment:
       API_URL: http://greenapple-api:3000
-      NEXT_PUBLIC_APP_URL: http://greenapple.pay
+      NEXT_PUBLIC_APP_URL: http://greenapple.localhost
     networks:
       - caddy
       - internal
     labels:
-      caddy: greenapple.pay
+      caddy: greenapple.localhost
       caddy.reverse_proxy: "{{upstreams 3000}}"
 
 networks:
@@ -139,7 +139,7 @@ networks:
   internal:
 ```
 
-> **Note on routing:** `greenapple.pay` → web, `greenapple.pay/api/*` → api (path prefix stripped before forwarding).
+> **Note on routing:** `greenapple.localhost` → web, `greenapple.localhost/api/*` → api (path prefix stripped before forwarding).
 
 Update `pnpm-workspace.yaml` to include `platforms/*/api` and `platforms/*/web`.
 
@@ -211,9 +211,9 @@ networks:
 
 ### Local domains
 
-`*.pay` resolves to `127.0.0.1` automatically in Chrome, Firefox, Safari — no `/etc/hosts` needed.
+`*.localhost` resolves to `127.0.0.1` automatically in Chrome, Firefox, Safari — no `/etc/hosts` needed.
 
-Format: `<slug>.pay` for web, `<slug>.pay/api` for backend.
+Format: `<slug>.localhost` for web, `<slug>.localhost/api` for backend.
 
 ---
 
@@ -274,7 +274,7 @@ GET    /health
 {
   "prompt": "payment site for Valencia citrus company, sells fresh oranges",
   "slug": "citrus",
-  "domain": "citrus.pay"    // optional, defaults to <slug>.pay
+  "domain": "citrus.localhost"    // optional, defaults to <slug>.localhost
 }
 ```
 
@@ -283,7 +283,7 @@ GET    /health
 {
   "id": "uuid",
   "slug": "citrus",
-  "domain": "citrus.pay",
+  "domain": "citrus.localhost",
   "status": "CREATING",
   "createdAt": "2026-04-30T..."
 }
@@ -293,10 +293,10 @@ GET    /health
 ```json
 {
   "slug": "citrus",
-  "domain": "citrus.pay",
+  "domain": "citrus.localhost",
   "status": "RUNNING",
-  "siteUrl": "http://citrus.pay",
-  "swaggerUrl": "http://citrus.pay/api/docs"
+  "siteUrl": "http://citrus.localhost",
+  "swaggerUrl": "http://citrus.localhost/api/docs"
 }
 ```
 
@@ -488,12 +488,12 @@ services:
       PAYMENT_API_URL: http://payment-service:3004
       PAYMENT_API_KEY: <from-payment-service-env>
       PLATFORM_ID: <slug>
-      FRONTEND_URL: http://<slug>.pay
+      FRONTEND_URL: http://<slug>.localhost
     networks:
       - caddy
       - internal
     labels:
-      caddy: "<slug>.pay"
+      caddy: "<slug>.localhost"
       caddy.handle_path: "/api/*"
       caddy.handle_path.0_reverse_proxy: "{{upstreams 3000}}"
 
@@ -502,12 +502,12 @@ services:
     container_name: <slug>-web
     environment:
       API_URL: http://<slug>-api:3000
-      NEXT_PUBLIC_APP_URL: http://<slug>.pay
+      NEXT_PUBLIC_APP_URL: http://<slug>.localhost
     networks:
       - caddy
       - internal
     labels:
-      caddy: "<slug>.pay"
+      caddy: "<slug>.localhost"
       caddy.reverse_proxy: "{{upstreams 3000}}"
 
 networks:
@@ -630,7 +630,7 @@ New skill becomes a simple one-liner:
 ```typescript
 const result = await fetch('http://localhost:3020/platforms', {
   method: 'POST',
-  body: JSON.stringify({ prompt, slug, domain: `${slug}.pay` })
+  body: JSON.stringify({ prompt, slug, domain: `${slug}.localhost` })
 });
 const { siteUrl, swaggerUrl } = await result.json();
 ```
@@ -678,6 +678,6 @@ CADDY_ADMIN_URL=http://localhost:2019
 | Docker management | child_process exec | Simpler than dockerode-compose, works natively |
 | Code generation | Claude API tool_use | Structured output, all files in one call |
 | API style | Async 202 + polling | Build takes 2-5 min, can't block HTTP |
-| Domains (local) | `<slug>.pay` | Works in all browsers without DNS config |
+| Domains (local) | `<slug>.localhost` | Works in all browsers without DNS config |
 | TLS (local) | disabled (`caddy.tls: off`) | No cert setup needed for local dev |
 | File storage | `platforms/<slug>/` in repo | Simple, version-controllable, visible |
