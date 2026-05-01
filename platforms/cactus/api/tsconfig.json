@@ -1,0 +1,19 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "incremental": false,
+    "declaration": false,
+    "baseUrl": "./",
+    "paths": {
+      "@fintech/payment-sdk": ["../../../packages/payment-sdk/dist/index"],
+      "@fintech/shared-auth": ["../../../packages/shared-auth/dist/index"],
+      "@fintech/shared-config": ["../../../packages/shared-config/dist/index"],
+      "@fintech/shared-health": ["../../../packages/shared-health/dist/index"],
+      "@fintech/shared-prisma": ["../../../packages/shared-prisma/dist/index"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

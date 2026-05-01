@@ -1,0 +1,49 @@
+name: cactus
+
+services:
+  cactus-api:
+    build:
+      context: ../../
+      dockerfile: platforms/cactus/api/Dockerfile
+    container_name: cactus-api
+    environment:
+      NODE_ENV: development
+      PORT: 3014
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/cactus_db
+      JWT_SECRET: cactus-super-secret-key-change-in-production-32chars
+      JWT_EXPIRES_IN: 7d
+      PAYMENT_API_URL: http://payment-service:3004
+      PAYMENT_API_KEY: dev-api-key-12345
+      PLATFORM_ID: cactus
+      FRONTEND_URL: http://cactus.localhost
+    networks:
+      - caddy
+      - internal
+    labels:
+      caddy: "http://cactus.localhost"
+      caddy.handle_path: /api/*
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 3014}}"
+
+  cactus-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: cactus-web
+    environment:
+      API_URL: http://cactus-api:3014
+      NEXT_PUBLIC_APP_NAME: Cactus Pay
+      NEXT_PUBLIC_APP_URL: http://cactus.localhost
+    networks:
+      - caddy
+      - internal
+    labels:
+      caddy: "http://cactus.localhost"
+      caddy.handle.0_reverse_proxy: "{{upstreams 3015}}"
+    depends_on:
+      - cactus-api
+
+networks:
+  caddy:
+    external: true
+  internal:
+    driver: bridge
