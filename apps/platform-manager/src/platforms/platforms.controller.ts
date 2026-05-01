@@ -1,13 +1,13 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   HttpCode,
   HttpStatus,
   NotFoundException,
   Param,
   Post,
+  Put,
 } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PlatformsService } from './platforms.service';
@@ -16,7 +16,7 @@ import { CreatePlatformDto } from './dto/create-platform.dto';
 @ApiTags('platforms')
 @Controller('platforms')
 export class PlatformsController {
-  constructor(private service: PlatformsService) {}
+  constructor(private readonly service: PlatformsService) {}
 
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
@@ -31,6 +31,26 @@ export class PlatformsController {
     return this.service.findAll();
   }
 
+  @Get(':slug/status')
+  @ApiOperation({ summary: 'Poll deploy status: CREATING → BUILDING → RUNNING | FAILED' })
+  getStatus(@Param('slug') slug: string) {
+    return this.service.getStatus(slug);
+  }
+
+  @Put(':slug/stop')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Stop running platform containers' })
+  stop(@Param('slug') slug: string) {
+    return this.service.stop(slug);
+  }
+
+  @Put(':slug/start')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Start stopped platform containers' })
+  start(@Param('slug') slug: string) {
+    return this.service.start(slug);
+  }
+
   @Get(':slug')
   @ApiOperation({ summary: 'Get platform by slug' })
   async findOne(@Param('slug') slug: string) {
@@ -39,10 +59,10 @@ export class PlatformsController {
     return platform;
   }
 
-  @Delete(':slug')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete platform record' })
-  remove(@Param('slug') slug: string) {
-    return this.service.remove(slug);
+  @Post(':slug/retry')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Retry a failed deploy' })
+  retry(@Param('slug') slug: string) {
+    return this.service.retry(slug);
   }
 }

@@ -8,10 +8,13 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@nestjs/common": "^11.0.1"
+    "@nestjs/common": "^11.0.1",
+    "@prisma/adapter-pg": "^7.0.0",
+    "pg": "^8.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
+    "@types/pg": "^8.0.0",
     "typescript": "^5.7.3"
   },
   "peerDependencies": {

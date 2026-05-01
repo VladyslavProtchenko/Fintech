@@ -1,0 +1,30 @@
+{
+  "name": "@fintech/shared-auth",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/config": "^4.0.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/passport": "^11.0.0",
+    "bcrypt": "^5.1.0",
+    "passport-jwt": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/passport-jwt": "^4.0.0",
+    "typescript": "^5.7.0"
+  },
+  "peerDependencies": {
+    "passport": "^0.7.0",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.0.0"
+  }
+}

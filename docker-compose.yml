@@ -102,6 +102,44 @@ services:
     networks:
       - caddy
 
+  platform-manager:
+    build:
+      context: .
+      dockerfile: apps/platform-manager/Dockerfile
+    container_name: platform-manager
+    ports:
+      - "3020:3020"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/monorepo
+    environment:
+      NODE_ENV: development
+      PORT: 3020
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/platform_manager
+      PAYMENT_API_URL: http://payment-service:3004
+      PAYMENT_API_KEY: dev-api-key-12345
+      PLATFORMS_DIR: /monorepo/platforms
+      POSTGRES_ADMIN_URL: postgresql://postgres:postgres@postgres:5432/postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - caddy
+
+  platform-manager-web:
+    build:
+      context: ./apps/platform-manager-web
+      dockerfile: Dockerfile
+    container_name: platform-manager-web
+    ports:
+      - "3021:3021"
+    environment:
+      API_URL: http://platform-manager:3020
+    depends_on:
+      - platform-manager
+    networks:
+      - caddy
+
 networks:
   caddy:
     external: true

@@ -21,6 +21,7 @@
       "@fintech/shared-redis": ["${configDir}/packages/shared-redis/src/index.ts"],
       "@fintech/shared-queue": ["${configDir}/packages/shared-queue/src/index.ts"],
       "@fintech/shared-health": ["${configDir}/packages/shared-health/src/index.ts"],
+      "@fintech/shared-auth": ["${configDir}/packages/shared-auth/src/index.ts"],
       "@fintech/payment-sdk": ["${configDir}/packages/payment-sdk/src/index.ts"]
     }
   }

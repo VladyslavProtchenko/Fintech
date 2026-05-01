@@ -7,7 +7,7 @@ export function createHealthModule(Controller: Type, options?: { imports?: any[]
 
   return {
     module: HealthModule,
-    imports: [TerminusModule.forRoot(), ...(options?.imports ?? [])],
+    imports: [TerminusModule, ...(options?.imports ?? [])],
     controllers: [Controller],
   };
 }

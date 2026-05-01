@@ -28,13 +28,13 @@ Ask the user for:
 
 Read `docs/client-registry.md` to see used slugs, ports, endpoint styles, error styles, color hues, and layout variants. If the registry file does not exist, create it with the header row.
 
-Scan `apps/` for existing `*-api` and `*-web` directories to confirm.
+Scan `platforms/` for existing platform directories to confirm used slugs.
 
-Assign the next available port pair (starting from 3010, incrementing by 2 per client).
+Assign the next available port pair (starting from 3014, incrementing by 2 per new platform; greenapple=3010/3011, orange=3012/3013 are taken).
 
 **Also read and save these values NOW (needed for `.env` generation later):**
 - `PAYMENT_API_KEY` → read from `apps/payment-service/.env` (field `API_KEY`)
-- `DATABASE_URL` format → read from any existing client's `.env` (e.g. `apps/greenapple-api/.env`) — copy the username/host format exactly, only change the DB name
+- `DATABASE_URL` format → read from any existing platform's `.env` (e.g. `platforms/orange/api/.env`) — copy the username/host format exactly, only change the DB name
 
 ### 3. Choose Unique Traits
 
@@ -67,7 +67,7 @@ Before writing any code, design a simple SVG brand identity for the platform.
 
 **Step 3 — Generate SVG files:**
 
-#### `apps/<slug>-web/public/logo.svg`
+#### `platforms/<slug>/web/public/logo.svg`
 Full logo: icon + wordmark side by side.
 - ViewBox: `0 0 160 40`
 - Icon on the left (32×32 area), brand name text on the right
@@ -88,7 +88,7 @@ Full logo: icon + wordmark side by side.
 </svg>
 ```
 
-#### `apps/<slug>-web/public/favicon.svg`
+#### `platforms/<slug>/web/public/favicon.svg`
 Icon only, no text.
 - ViewBox: `0 0 32 32`
 - Same icon shape from the logo, centered in 32×32 grid
@@ -101,7 +101,7 @@ Icon only, no text.
 </svg>
 ```
 
-#### `apps/<slug>-web/app/favicon.ico` reference
+#### favicon reference in layout
 In `src/app/layout.tsx`, set metadata to use the SVG favicon:
 ```ts
 export const metadata: Metadata = {
@@ -116,23 +116,28 @@ export const metadata: Metadata = {
 - No text inside the icon itself (wordmark is separate)
 - Avoid initials-only logos unless the letterform is heavily stylized
 
-### 5. Generate Backend (`<slug>-api`)
+### 5. Generate Backend (`platforms/<slug>/api`)
 
-Create `apps/<slug>-api/` following the spec. Key files in order:
+Create `platforms/<slug>/api/` following the spec. Key files in order:
 
-1. `package.json` — with `@fintech/payment-sdk: "workspace:*"`, `@prisma/adapter-pg`, `pg`, `dotenv`, `passport`, and all NestJS deps. Script `start:dev` must be `prisma generate && nest start --watch`
-2. `tsconfig.json` — extends `../../tsconfig.base.json`, set `rootDir: "./src"`, `incremental: false`, and override paths `@fintech/payment-sdk` → `../../packages/payment-sdk/dist/index` (NOT source)
+1. `package.json` — workspace deps: `@fintech/payment-sdk`, `@fintech/shared-auth`, `@fintech/shared-prisma`, `@fintech/shared-health`, `@fintech/shared-config` (all `"workspace:*"`). Plus `@prisma/adapter-pg`, `pg`, `dotenv`, `passport`, `@nestjs/jwt`, `@nestjs/passport`, and all NestJS deps. Script `start:dev` must be `prisma generate && nest start --watch`
+2. `tsconfig.json` — extends `../../../tsconfig.base.json`, set `rootDir: "./src"`, `incremental: false`, and override ALL @fintech paths → `../../../packages/<pkg>/dist/index` (3 levels up — NOT source):
+   - `@fintech/payment-sdk` → `../../../packages/payment-sdk/dist/index`
+   - `@fintech/shared-auth` → `../../../packages/shared-auth/dist/index`
+   - `@fintech/shared-prisma` → `../../../packages/shared-prisma/dist/index`
+   - `@fintech/shared-health` → `../../../packages/shared-health/dist/index`
+   - `@fintech/shared-config` → `../../../packages/shared-config/dist/index`
 3. `nest-cli.json` — tsc builder (NOT SWC), `deleteOutDir: true`
 4. `prisma/schema.prisma` — User model with `paymentClientId` + `walletId` (no `url` in datasource). Output: `../src/generated/prisma` (MUST be inside `src/`)
 5. `prisma.config.ts` — `defineConfig` with env DATABASE_URL
-6. `.env` — all required vars including `PLATFORM_ID=<slug>` (create real .env for dev, not just .env.example). **IMPORTANT:** Read `PAYMENT_API_KEY` from `apps/payment-service/.env` and `DATABASE_URL` format from an existing client's `.env` (e.g. `apps/greenapple-api/.env`) — do NOT guess these values, copy them from the source of truth.
+6. `.env` — all required vars including `PLATFORM_ID=<slug>` (create real .env for dev, not just .env.example). **IMPORTANT:** Read `PAYMENT_API_KEY` from `apps/payment-service/.env` and `DATABASE_URL` format from an existing platform's `.env` (e.g. `platforms/orange/api/.env`) — do NOT guess these values, copy them from the source of truth.
 7. `.gitignore` — `src/generated/`, `generated/`, `dist/`, `node_modules/`, `.env`
-8. `src/config/env.validation.ts` — validate all env vars at startup
-9. `src/prisma/` — PrismaModule (global) + PrismaService (using `@prisma/adapter-pg` + `pg.Pool`, NOT `datasourceUrl`)
-10. `src/auth/` — full auth module (controller, service, JWT strategy, guard, decorator, DTOs, types)
+8. `src/config/env.validation.ts` — extend `BaseEnvironmentVariables` from `@fintech/shared-config`, add platform-specific fields (JWT_SECRET, PAYMENT_API_URL, PAYMENT_API_KEY, PLATFORM_ID, FRONTEND_URL). Use `createValidator(EnvironmentVariables)` as the `validate` function. Do NOT redefine NODE_ENV, PORT, DATABASE_URL.
+9. `src/prisma/` — PrismaModule (global) + PrismaService using `withPrismaAdapterPg(PrismaClient)` mixin from `@fintech/shared-prisma`. PrismaService body is one line: `export class PrismaService extends withPrismaAdapterPg(PrismaClient) {}`
+10. `src/auth/` — auth.controller.ts + auth.service.ts + DTOs only. **NO** jwt.strategy.ts, jwt-auth.guard.ts, current-user.decorator.ts, jwt-payload.ts, or auth.module.ts — all provided by `@fintech/shared-auth`. Add `createAuthModule()` directly to `app.module.ts` imports. In auth.service.ts use `hashPassword`/`comparePassword` from `@fintech/shared-auth`; inject `JwtService` from `@nestjs/jwt` for signing. Protect routes with `JwtAuthGuard` and `@CurrentUser()` from `@fintech/shared-auth`.
 11. `src/payment/` (or chosen module name) — PaymentService bridge + controller + DTOs
 12. `src/user/` (or chosen module name) — user search endpoint
-13. `src/health/` — health module with terminus
+13. `src/health/` — health.controller.ts (inject PrismaService, SELECT 1 check) + health.module.ts using `createHealthModule(HealthController, { imports: [PrismaModule] })` from `@fintech/shared-health`
 14. `src/common/filters/global-exception.filter.ts` — unique error format
 15. `src/app.module.ts` — wire everything
 16. `src/main.ts` — bootstrap with ValidationPipe, CORS, GlobalExceptionFilter, Swagger
@@ -147,9 +152,9 @@ Create `apps/<slug>-api/` following the spec. Key files in order:
 - Idempotency keys: `crypto.randomUUID()` generated by backend
 - Transfer recipient resolved from LOCAL User table by email
 
-### 6. Generate Frontend (`<slug>-web`)
+### 6. Generate Frontend (`platforms/<slug>/web`)
 
-Create `apps/<slug>-web/` following the spec. Key files:
+Create `platforms/<slug>/web/` following the spec. Key files:
 
 1. `package.json` — next, react, react-dom (no TanStack Query, no Zustand)
 2. `tsconfig.json`
@@ -185,42 +190,99 @@ Create `apps/<slug>-web/` following the spec. Key files:
 - History pagination via URL `searchParams` (`?page=2&type=sent`)
 - Auth via httpOnly cookie (set in server action, read in layout guard)
 
-### 7. Update Infrastructure
+### 7. Generate docker-compose.yml
 
-1. Add `CREATE DATABASE <slug>_db;` to `docker/postgres/init.sql`
-2. Add `<slug>-api` and `<slug>-web` entries to `docker-compose.yml`
-3. Ensure `@fintech/payment-sdk` path alias exists in `tsconfig.base.json`
-4. Ensure root `package.json` has `pnpm.onlyBuiltDependencies` entries for `bcrypt`, `prisma` (pnpm v10 blocks native build scripts by default)
-5. Create `apps/<slug>-web/.env.local` with `API_URL` and `NEXT_PUBLIC_APP_URL`
-6. Create `apps/<slug>-api/.env` with all required vars (DATABASE_URL, JWT_SECRET, PAYMENT_API_URL, PAYMENT_API_KEY, PLATFORM_ID, FRONTEND_URL)
+Create `platforms/<slug>/docker-compose.yml` using orange as the reference (`platforms/orange/docker-compose.yml`).
+Use Caddy labels so Caddy docker-proxy auto-detects and routes `<slug>.localhost`.
+
+```yaml
+name: <slug>
+
+services:
+  <slug>-api:
+    build:
+      context: ../../              # monorepo root — required for pnpm workspace deps
+      dockerfile: platforms/<slug>/api/Dockerfile
+    container_name: <slug>-api
+    environment:
+      NODE_ENV: development
+      PORT: <apiPort>
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/<slug>_db
+      JWT_SECRET: <slug>-dev-secret-32chars-minimum-required
+      JWT_EXPIRES_IN: 7d
+      PAYMENT_API_URL: http://payment-service:3004
+      PAYMENT_API_KEY: <from payment-service .env>
+      PLATFORM_ID: <slug>
+      FRONTEND_URL: http://<slug>.localhost
+    networks: [caddy, internal]
+    labels:
+      caddy: "http://<slug>.localhost"
+      caddy.handle_path: /api/*
+      caddy.handle_path.0_reverse_proxy: "{{upstreams <apiPort>}}"
+
+  <slug>-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: <slug>-web
+    environment:
+      API_URL: http://<slug>-api:<apiPort>
+      NEXT_PUBLIC_APP_NAME: <displayName>
+      NEXT_PUBLIC_APP_URL: http://<slug>.localhost
+    networks: [caddy, internal]
+    labels:
+      caddy: "http://<slug>.localhost"
+      caddy.handle.0_reverse_proxy: "{{upstreams <webPort>}}"
+    depends_on: [<slug>-api]
+
+networks:
+  caddy:
+    external: true
+  internal:
+    driver: bridge
+```
 
 ### 8. Update Client Registry
 
 Add a row to `docs/client-registry.md` with all traits.
 
-### 9. Verify
+### 9. Verify TypeScript compiles
 
-Run through the generation checklist from `docs/client-platform-spec.md` section 8.
-
-Quick smoke test:
 ```bash
-# 1. Ensure root package.json has pnpm.onlyBuiltDependencies for bcrypt/prisma
-# 2. Install deps
+# Install deps (new workspace member)
 pnpm install
-# 3. Generate Prisma client
-cd apps/<slug>-api && npx prisma generate
-# 4. Build payment-sdk first (needed for path alias)
+
+# Build ALL shared packages first (dist/ must exist before compiling the new API)
+pnpm --filter @fintech/shared-config run build
 pnpm --filter @fintech/payment-sdk run build
-# 5. Compile backend (check for errors)
-cd apps/<slug>-api && npx tsc --noEmit
-# 6. Run migration
-cd apps/<slug>-api && DATABASE_URL=postgresql://... npx prisma migrate dev --name init
-# 7. Start API and check health
-cd apps/<slug>-api && node dist/main.js
-curl http://localhost:<api-port>/health
-# 8. Create .env.local for web, start frontend
-cd apps/<slug>-web && pnpm dev
+pnpm --filter @fintech/shared-auth run build
+pnpm --filter @fintech/shared-prisma run build
+pnpm --filter @fintech/shared-health run build
+
+# Generate Prisma client
+cd platforms/<slug>/api && npx prisma generate
+
+# Compile backend (check for errors)
+cd platforms/<slug>/api && npx tsc --noEmit
 ```
+
+### 10. Trigger deploy via platform-manager
+
+After all files are generated and TypeScript compiles, deploy via platform-manager:
+
+```bash
+curl -X POST http://localhost:3020/platforms \
+  -H 'Content-Type: application/json' \
+  -d '{"slug": "<slug>", "displayName": "<displayName>"}'
+```
+
+Then poll status until RUNNING:
+```bash
+curl http://localhost:3020/platforms/<slug>/status
+# { "status": "RUNNING", "siteUrl": "http://<slug>.localhost", "swaggerUrl": "http://<slug>.localhost/api/docs" }
+```
+
+Or use the platform-manager-web UI: http://localhost:3021/platforms/new
 
 ## Invariants (Never Violate)
 
@@ -228,10 +290,12 @@ These rules apply to EVERY generated project regardless of customization:
 
 - `@fintech/payment-sdk` for all payment operations
 - NestJS 11 + Prisma 7 (no `url` in datasource, output inside `src/`, import from `generated/prisma/client`)
-- PrismaService: `@prisma/adapter-pg` + `pg.Pool` (never `datasourceUrl`)
-- tsconfig: `rootDir: "./src"`, `incremental: false`, paths → `dist/index`
+- PrismaService: `withPrismaAdapterPg(PrismaClient)` from `@fintech/shared-prisma` — never manual Pool setup
+- Auth: `createAuthModule()` in app.module.ts, `JwtAuthGuard`/`CurrentUser`/`hashPassword`/`comparePassword` from `@fintech/shared-auth` — never duplicate these locally
+- Health: `createHealthModule(Controller, { imports })` from `@fintech/shared-health`
+- Env validation: extend `BaseEnvironmentVariables` + `createValidator` from `@fintech/shared-config`
+- tsconfig: `rootDir: "./src"`, `incremental: false`, ALL `@fintech/*` paths → `../../../packages/<pkg>/dist/index` (3 levels up from `platforms/<slug>/api/`)
 - nest-cli.json: tsc builder (NOT SWC), `deleteOutDir: true`
-- JWT + Passport + bcrypt (12 rounds)
 - User model: `paymentClientId @unique` + `walletId @unique`
 - Registration order: payment client FIRST (with `platformId`), then local User
 - `GlobalExceptionFilter` catches `PaymentServiceError` and re-maps to unique format
@@ -253,5 +317,11 @@ These rules apply to EVERY generated project regardless of customization:
 ### Existing Code to Study
 
 - **`packages/payment-sdk/src/`** — SDK types and client (understand what bridge wraps)
-- **`apps/brand-service/src/auth/`** — JWT + Passport + bcrypt reference implementation
+- **`packages/shared-auth/src/`** — createAuthModule, JwtAuthGuard, CurrentUser, hashPassword/comparePassword
+- **`packages/shared-prisma/src/`** — withPrismaAdapterPg mixin
+- **`packages/shared-health/src/`** — createHealthModule factory
+- **`packages/shared-config/src/`** — BaseEnvironmentVariables, createValidator
+- **`platforms/orange/api/src/`** — reference backend implementation
+- **`platforms/orange/web/src/`** — reference frontend implementation
+- **`platforms/orange/docker-compose.yml`** — reference docker-compose with Caddy labels
 - **`apps/payment-service/src/`** — Payment core (understand what SDK calls)

@@ -1,10 +1,11 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
@@ -18,7 +19,7 @@ async function bootstrap() {
 
   const port = process.env['PORT'] ?? 3020;
   await app.listen(port);
-  console.log(`Platform Manager running on port ${port}`);
+  logger.log(`Platform Manager running on port ${port}`);
 }
 
 bootstrap();

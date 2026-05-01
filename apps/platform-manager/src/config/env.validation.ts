@@ -1,9 +1,10 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsNumber, IsString, IsUrl, validateSync } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, IsUrl, validateSync } from 'class-validator';
 
 enum Environment {
   Development = 'development',
   Production = 'production',
+  Test = 'test',
 }
 
 class EnvVariables {
@@ -16,9 +17,6 @@ class EnvVariables {
   @IsString()
   DATABASE_URL!: string;
 
-  @IsString()
-  ANTHROPIC_API_KEY!: string;
-
   @IsUrl({ require_tld: false })
   PAYMENT_API_URL!: string;
 
@@ -28,8 +26,17 @@ class EnvVariables {
   @IsString()
   PLATFORMS_DIR!: string;
 
+  // Admin connection to the shared postgres server (used to CREATE DATABASE for each platform)
+  // Must point to the admin user with CREATE DATABASE privileges, database = "postgres"
+  // Local: postgresql://<user>@localhost:5432/postgres
+  // Docker: postgresql://postgres:postgres@postgres:5432/postgres
+  @IsString()
+  POSTGRES_ADMIN_URL!: string;
+
+  // Optional — Caddy integration is not yet implemented
+  @IsOptional()
   @IsUrl({ require_tld: false })
-  CADDY_ADMIN_URL!: string;
+  CADDY_ADMIN_URL?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

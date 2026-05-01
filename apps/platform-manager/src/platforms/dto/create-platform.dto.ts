@@ -1,20 +1,29 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 export class CreatePlatformDto {
   @ApiProperty({ example: 'citrus' })
   @IsString()
-  @Matches(/^[a-z0-9-]+$/, { message: 'slug must be lowercase letters, numbers, hyphens only' })
+  @MinLength(2)
+  @MaxLength(50)
+  @Matches(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, {
+    message: 'slug must be lowercase alphanumeric with optional hyphens',
+  })
   slug!: string;
 
-  @ApiProperty({ example: 'payment site for Valencia citrus company' })
+  @ApiPropertyOptional({ example: 'Citrus Pay' })
+  @IsOptional()
   @IsString()
-  @MinLength(10)
-  prompt!: string;
+  @MinLength(2)
+  @MaxLength(50)
+  displayName?: string;
 
   @ApiPropertyOptional({ example: 'citrus.localhost' })
-  @IsString()
   @IsOptional()
-  @Matches(/^[a-z0-9.-]+$/, { message: 'domain must contain only lowercase letters, numbers, dots, hyphens' })
+  @IsString()
+  @MaxLength(100)
+  @Matches(/^[a-z0-9.-]+$/, {
+    message: 'domain must be lowercase letters, numbers, dots, hyphens',
+  })
   domain?: string;
 }
