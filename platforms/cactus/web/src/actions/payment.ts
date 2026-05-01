@@ -1,8 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { api } from '@/lib/api';
-import { ApiError } from '@/lib/errors';
+import { redirect } from 'next/navigation';
+import { api, ApiError } from '@/lib/api';
 
 interface TxResult {
   ok: boolean;
@@ -26,11 +26,12 @@ export async function fundAction(
     await api<TxResult>('/v1/wallet/fund', { method: 'POST', body: { sum } });
     revalidatePath('/dashboard');
     revalidatePath('/history');
-    return null;
   } catch (err) {
     if (err instanceof ApiError) return err.message;
     return 'Something went wrong';
   }
+
+  redirect('/dashboard');
 }
 
 export async function wireAction(
@@ -41,7 +42,7 @@ export async function wireAction(
   const sum = formData.get('sum') as string;
 
   try {
-    await api<TxResult>('/v1/payments/send', { method: 'POST', body: { recipientEmail, sum } });
+    await api<TxResult>('/v1/wallet/send', { method: 'POST', body: { recipientEmail, sum } });
     revalidatePath('/dashboard');
     revalidatePath('/history');
     return null;

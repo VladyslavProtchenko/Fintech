@@ -1,0 +1,49 @@
+name: apricot
+
+services:
+  apricot-api:
+    build:
+      context: ../../
+      dockerfile: platforms/apricot/api/Dockerfile
+    container_name: apricot-api
+    environment:
+      NODE_ENV: development
+      PORT: 3016
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/apricot_db
+      JWT_SECRET: apricot-ua-super-secret-key-change-in-production-32c
+      JWT_EXPIRES_IN: 7d
+      PAYMENT_API_URL: http://payment-service:3004
+      PAYMENT_API_KEY: dev-api-key-12345
+      PLATFORM_ID: apricot
+      FRONTEND_URL: http://apricot.localhost
+    networks:
+      - caddy
+      - internal
+    labels:
+      caddy: "http://apricot.localhost"
+      caddy.handle_path: /api/*
+      caddy.handle_path.0_reverse_proxy: "{{upstreams 3016}}"
+
+  apricot-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: apricot-web
+    environment:
+      API_URL: http://apricot-api:3016
+      NEXT_PUBLIC_APP_NAME: Абрикос UA
+      NEXT_PUBLIC_APP_URL: http://apricot.localhost
+    networks:
+      - caddy
+      - internal
+    labels:
+      caddy: "http://apricot.localhost"
+      caddy.handle.0_reverse_proxy: "{{upstreams 3017}}"
+    depends_on:
+      - apricot-api
+
+networks:
+  caddy:
+    external: true
+  internal:
+    driver: bridge

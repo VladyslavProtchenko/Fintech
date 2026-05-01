@@ -6,8 +6,8 @@
 
 Each client gets two independent apps:
 
-- **`<client>-api`** — NestJS 11 backend (auth, business logic, payment-sdk bridge)
-- **`<client>-web`** — Next.js 16 frontend (landing + auth + dashboard)
+- **`<slug>-api`** — NestJS 11 backend (auth, business logic, payment-sdk bridge)
+- **`<slug>-web`** — Next.js 15 frontend (landing + auth + dashboard)
 
 Every generated project is **structurally unique**: different endpoint naming, different error formats, different UI, different naming conventions. No two clients should look like they share the same codebase.
 
@@ -49,10 +49,11 @@ Every generated project is **structurally unique**: different endpoint naming, d
 
 ### 2.2 User Flows
 
-**Registration:**
+**Registration (lazy provisioning):**
 1. User fills email + name + password
-2. Backend creates payment client (via SDK), then local User
+2. Backend creates LOCAL User only (passwordHash) — NO payment-service call
 3. Returns JWT → set cookie → redirect to `/dashboard`
+4. Payment-service client + wallet created lazily on first wallet access (balance/deposit/send)
 
 **Login:**
 1. Email + password → verify → JWT → cookie → redirect to `/dashboard`
@@ -60,16 +61,17 @@ Every generated project is **structurally unique**: different endpoint naming, d
 **Deposit (prototype — no real payment gateway):**
 1. User enters any amount (e.g., "500.00")
 2. Confirm button
-3. Server Action calls backend → backend calls `paymentClient.topup(...)` → returns COMPLETED
-4. `revalidatePath('/dashboard')` → page re-renders with new balance
-5. Show success message
+3. Server Action calls backend → backend calls `ensurePaymentClient()` then `paymentClient.topup(...)` → returns COMPLETED
+4. `revalidatePath('/dashboard')` + `revalidatePath('/history')` → `redirect('/dashboard')`
+5. User sees updated balance on dashboard
 
 **Send money:**
 1. User types recipient email
 2. Client component calls `searchUser` server action
 3. If found — show recipient name, enter amount
-4. Confirm → Server Action calls backend → `paymentClient.transfer(...)` → returns COMPLETED
+4. Confirm → Server Action calls backend → `ensurePaymentClient()` then `paymentClient.transfer(...)` → returns COMPLETED
 5. `revalidatePath('/dashboard')` → show result (success / insufficient funds)
+6. Send-form detects success via `useEffect` + `hasSubmitted` flag → shows "Wire Complete!" screen
 
 **Transaction history:**
 1. Server Component loads paginated list on render
@@ -88,7 +90,7 @@ Every generated project is **structurally unique**: different endpoint naming, d
 
 ---
 
-## 3. Backend (`<client>-api`)
+## 3. Backend (`platforms/<slug>/api`)
 
 ### 3.1 Tech Stack & Versions
 
@@ -97,10 +99,10 @@ Every generated project is **structurally unique**: different endpoint naming, d
 | Framework | NestJS (strict TS, tsc build) | 11.x |
 | ORM | Prisma (custom output `src/generated/prisma`) | 7.x |
 | DB driver | @prisma/adapter-pg + pg (driver-based) | 7.x |
-| Auth | JWT + Passport + bcrypt | passport-jwt 4.x |
+| Auth | JWT + Passport + bcrypt (via `@fintech/shared-auth`) | passport-jwt 4.x |
 | Validation | class-validator + class-transformer | latest |
-| Config | @nestjs/config + class-validator env schema | latest |
-| Health | @nestjs/terminus → `GET /health` | latest |
+| Config | @nestjs/config + `@fintech/shared-config` env schema | latest |
+| Health | @nestjs/terminus via `@fintech/shared-health` → `GET /health` | latest |
 
 ### 3.2 Database Schema (Prisma)
 
@@ -122,8 +124,8 @@ model User {
   email           String   @unique
   passwordHash    String
   name            String
-  paymentClientId String   @unique  // maps to Client.id in payment-service
-  walletId        String   @unique  // cached from payment-service for fast counterparty lookups
+  paymentClientId String?  @unique  // maps to Client.id in payment-service (lazy — created on first wallet access)
+  walletId        String?  @unique  // cached from payment-service for fast counterparty lookups (lazy)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -131,13 +133,17 @@ model User {
 
 **Why `walletId`?** SDK `Transaction` returns `fromWalletId`/`toWalletId`. To determine direction (sent/received) and resolve counterparty names, the bridge needs to match walletIds to local users. Storing `walletId` avoids extra SDK calls.
 
-**Registration order** (critical for atomicity):
+**Registration** creates a local User only (email, name, passwordHash). No payment-service call.
 
-1. Call `paymentClient.createClient({ email, name, platformId })` — get back `{ id, wallet: { id: walletId } }` from payment-service
-2. Create `User` locally with `paymentClientId = client.id` and `walletId = client.wallet.id`
-3. If step 2 fails — orphaned client in payment-service is acceptable (zero balance, no data)
+**Lazy payment client provisioning**: the payment-service client + wallet is created on first wallet access (balance, deposit, transfer). The `AccountService.ensurePaymentClient(userId)` method:
+1. Load User from DB
+2. If `paymentClientId` and `walletId` are already set — return immediately
+3. Otherwise call `paymentClient.createClient({ email, name, platformId })` → validate walletId exists → update User with `paymentClientId` + `walletId`
+4. If wallet is null/undefined after creation — throw `BadRequestException('Payment wallet was not provisioned')`
 
-If `createClient` throws 409 (duplicate email+platformId in payment-service) — return "email already in use".
+This decouples auth from payment-service — registration works even when payment-service is down.
+
+If `createClient` throws 409 (duplicate email+platformId in payment-service) — propagate as error.
 
 ### 3.3 Prisma 7 Configuration
 
@@ -156,36 +162,25 @@ export default defineConfig({
 
 No `url` in the `datasource` block of `schema.prisma`. Import from `generated/prisma/client`.
 
-#### PrismaService (driver-based adapter)
+#### PrismaService (shared mixin)
 
-Prisma 7 requires a driver-based connection. Use `@prisma/adapter-pg` with `pg.Pool`:
+Use `withPrismaAdapterPg(PrismaClient)` mixin from `@fintech/shared-prisma`:
 
 ```typescript
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { Pool } from 'pg';
-import { PrismaPg } from '@prisma/adapter-pg';
+import { Injectable } from '@nestjs/common';
+import { withPrismaAdapterPg } from '@fintech/shared-prisma';
 import { PrismaClient } from '../generated/prisma/client';
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit {
-  constructor() {
-    const pool = new Pool({ connectionString: process.env['DATABASE_URL'] });
-    const adapter = new PrismaPg(pool);
-    super({ adapter });
-  }
-
-  async onModuleInit() {
-    await this.$connect();
-  }
-}
+export class PrismaService extends withPrismaAdapterPg(PrismaClient) {}
 ```
 
-**Do NOT use `datasourceUrl` in PrismaClient constructor** — Prisma 7 removed it. The adapter pattern is the only way.
+**Do NOT manually create Pool/PrismaPg** — the mixin handles it.
 
 ### 3.4 Project Structure
 
 ```
-<client>-api/
+platforms/<slug>/api/
   prisma/
     schema.prisma
     migrations/
@@ -196,49 +191,47 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
     main.ts                    # bootstrap: ValidationPipe, CORS, Swagger
     app.module.ts
     config/
-      env.validation.ts        # PORT, DATABASE_URL, JWT_SECRET, PAYMENT_API_URL, PAYMENT_API_KEY, PLATFORM_ID
+      env.validation.ts        # extends BaseEnvironmentVariables from @fintech/shared-config
     prisma/
       prisma.module.ts         # global module
-      prisma.service.ts
+      prisma.service.ts        # one-liner using shared mixin
     auth/
-      auth.module.ts
+      auth.module.ts           # imports JwtModule.registerAsync() directly
       auth.controller.ts
-      auth.service.ts          # register + login
-      jwt.strategy.ts
-      guards/
-        jwt-auth.guard.ts
-      decorators/
-        current-user.decorator.ts
+      auth.service.ts          # register (local User only) + login
       dto/
         register.dto.ts
         login.dto.ts
-      types/
-        jwt-payload.ts
-    payment/                   # name varies per client (wallet/, funds/, account/)
-      payment.module.ts
-      payment.service.ts       # wraps PaymentClient + maps responses
-      payment.controller.ts
+    account/                   # name varies per client (wallet/, funds/, account/)
+      account.module.ts
+      account.service.ts       # wraps PaymentClient + ensurePaymentClient + maps responses
+      account.controller.ts
       dto/
-        deposit.dto.ts
-        transfer.dto.ts
+        fund.dto.ts
+        wire.dto.ts
+      types/
+        mapped-transaction.ts
     user/                      # user lookup for transfers
       user.module.ts
-      user.service.ts          # findByEmail (for transfer recipient search)
-      user.controller.ts       # GET /users/search?email=...
+      user.controller.ts       # GET /v1/recipients/check?email=...
     health/
-      health.module.ts
+      health.module.ts         # local module with TerminusModule (NOT createHealthModule — returns DynamicModule, can't extend)
       health.controller.ts
     common/
       filters/
-        global-exception.filter.ts
-  test/
-    app.e2e-spec.ts
+        global-exception.filter.ts  # handles HttpException + PaymentServiceError
   package.json
   tsconfig.json
-  .env.example
+  .env
   .gitignore
   Dockerfile
 ```
+
+**Auth files NOT generated locally** (provided by `@fintech/shared-auth`):
+- `jwt.strategy.ts` — NOT needed
+- `jwt-auth.guard.ts` — use `JwtAuthGuard` from `@fintech/shared-auth`
+- `current-user.decorator.ts` — use `@CurrentUser()` from `@fintech/shared-auth`
+- `jwt-payload.ts` — use `JwtPayload` type from `@fintech/shared-auth`
 
 ### 3.5 `main.ts` Bootstrap
 
@@ -256,8 +249,9 @@ app.enableCors({
 
 app.useGlobalFilters(new GlobalExceptionFilter());
 
-// Swagger (dev only)
-if (process.env.NODE_ENV !== 'production') { ... }
+// Swagger — setup path must be 'docs' (not 'api/docs')
+// Caddy strips /api/ prefix, so public URL becomes http://<slug>.localhost/api/docs
+SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
 ```
 
 ### 3.6 `nest-cli.json`
@@ -274,21 +268,65 @@ Use default tsc builder (NOT SWC — SWC has issues with files outside sourceRoo
 
 ### 3.7 Auth Flow
 
-1. **Register**: call `paymentClient.createClient({ email, name, platformId })` → hash password (bcrypt, 12 rounds) → save User (with `paymentClientId` + `walletId`) → return JWT
-2. **Login**: find by email → verify bcrypt → return JWT
-3. **JWT Payload**: `{ sub: userId, email: string }`
-4. **Protected routes**: `@UseGuards(JwtAuthGuard)` + `@CurrentUser()` decorator
+1. **Register**: hash password (`hashPassword` from `@fintech/shared-auth`) → save User (email, name, passwordHash — NO payment-service call) → return JWT. Payment client is created lazily on first wallet access via `ensurePaymentClient()`.
+2. **Login**: find by email → verify (`comparePassword` from `@fintech/shared-auth`) → return JWT
+3. **JWT Payload**: `{ sub: userId, email: string }` — `JwtPayload` type from `@fintech/shared-auth`
+4. **Protected routes**: `@UseGuards(JwtAuthGuard)` + `@CurrentUser()` decorator — both from `@fintech/shared-auth`
+
+**AuthModule must import `JwtModule.registerAsync(...)` directly** — `createAuthModule()` is `@Global` but its `JwtService` doesn't propagate to child modules that import their own `JwtModule`.
+
+```typescript
+// auth.module.ts
+@Module({
+  imports: [
+    JwtModule.registerAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        secret: config.getOrThrow('JWT_SECRET'),
+      }),
+    }),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService],
+})
+export class AuthModule {}
+```
+
+Also add `createAuthModule()` to `app.module.ts` imports for JwtStrategy/JwtAuthGuard global availability.
 
 ### 3.8 Payment Bridge + Response Mapping
 
 The payment bridge wraps `PaymentClient` and **maps all responses** to hide payment-service internals.
 
+**Lazy payment client provisioning** — every wallet operation calls `ensurePaymentClient(userId)` first:
+
+```typescript
+private async ensurePaymentClient(userId: string) {
+  const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  if (user.paymentClientId && user.walletId) return user;
+
+  const paymentClient = await this.client.createClient({
+    email: user.email, name: user.name, platformId: this.platformId,
+  });
+
+  const walletId = paymentClient.wallet?.id;
+  if (!walletId) {
+    throw new BadRequestException('Payment wallet was not provisioned');
+  }
+
+  return this.prisma.user.update({
+    where: { id: userId },
+    data: { paymentClientId: paymentClient.id, walletId },
+  });
+}
+```
+
 **Getting balance** — SDK has no `getBalance()`. Use `getClient(paymentClientId)` → extract `client.wallet.balance`:
 
 ```typescript
 async getBalance(userId: string): Promise<string> {
-  const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  const client = await this.client.getClient(user.paymentClientId);
+  const user = await this.ensurePaymentClient(userId);
+  const client = await this.client.getClient(user.paymentClientId!);
   return client.wallet?.balance ?? '0';
 }
 ```
@@ -303,7 +341,7 @@ async getBalance(userId: string): Promise<string> {
 {
   id: string;
   type: 'deposit' | 'sent' | 'received';  // derived from SDK type + wallet comparison
-  amount: string;
+  sum: string;       // field name varies per client (amount/sum/value)
   status: string;
   counterparty: string | null;  // recipient/sender name, null for deposits
   createdAt: string;
@@ -316,12 +354,7 @@ async getBalance(userId: string): Promise<string> {
 - `type === 'TRANSFER'` + `toWalletId === myWalletId` → `received`
 
 **Resolving counterparty name:**
-For transfers, the bridge knows the counterparty's `walletId`. It needs to resolve: `walletId` → `clientId` (via `getClient` or cached) → `paymentClientId` → local `User.name`. For the prototype, a simple approach:
-1. Get current user's `paymentClientId` → call `getClient()` → get `wallet.id` (cache per request)
-2. For each transfer transaction, the other walletId belongs to the counterparty
-3. Look up counterparty: find local User by iterating or via a prebuilt map
-
-**Simplified approach for prototype:** `walletId` is already stored on the User model (see section 3.2). Counterparty lookup is just `prisma.user.findUnique({ where: { walletId } })`.
+`walletId` is stored on the User model (see section 3.2). Counterparty lookup is `prisma.user.findMany({ where: { walletId: { in: [...walletIds] } } })` — batch resolve for ledger, single lookup for transfers.
 
 **`MappedTransaction` interface** (defined in the payment module):
 
@@ -329,81 +362,93 @@ For transfers, the bridge knows the counterparty's `walletId`. It needs to resol
 interface MappedTransaction {
   id: string;
   type: 'deposit' | 'sent' | 'received';
-  amount: string;
+  sum: string;        // field name varies per client
   status: string;
   counterparty: string | null;  // name, null for deposits
   createdAt: string;
 }
 ```
 
-**Full bridge:**
+**Full bridge pattern:**
 
 ```typescript
 @Injectable()
-export class PaymentService {
+export class AccountService {
   private readonly client: PaymentClient;
+  private readonly platformId: string;
 
-  // NOTE: `platformId` is NOT needed here — it's used in auth.service during registration
-  // (createClient call). The bridge only works with existing paymentClientIds.
-
-  constructor(config: ConfigService, private prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService,
+  ) {
     this.client = new PaymentClient({
       baseUrl: config.getOrThrow('PAYMENT_API_URL'),
       apiKey: config.getOrThrow('PAYMENT_API_KEY'),
     });
+    this.platformId = config.getOrThrow('PLATFORM_ID');
   }
 
   async getBalance(userId: string): Promise<string> {
-    const user = await this.findUser(userId);
-    const client = await this.client.getClient(user.paymentClientId);
-    return client.wallet?.balance ?? '0';
+    const user = await this.ensurePaymentClient(userId);
+    const paymentClient = await this.client.getClient(user.paymentClientId!);
+    return paymentClient.wallet?.balance ?? '0';
   }
 
-  async deposit(userId: string, amount: string): Promise<MappedTransaction> {
-    const user = await this.findUser(userId);
-    const tx = await this.client.topup({
-      clientId: user.paymentClientId,
-      amount,
-      idempotencyKey: crypto.randomUUID(),
-    });
-    return this.mapTransaction(tx, user.walletId);
+  async fund(userId: string, sum: string): Promise<MappedTransaction> {
+    const user = await this.ensurePaymentClient(userId);
+    try {
+      const tx = await this.client.topup({
+        clientId: user.paymentClientId!,
+        amount: sum,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      return this.mapTransaction(tx, user.walletId!);
+    } catch (err) {
+      if (err instanceof PaymentServiceError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 
-  async transfer(userId: string, toEmail: string, amount: string): Promise<MappedTransaction> {
-    const [sender, recipient] = await Promise.all([
-      this.findUser(userId),
-      this.prisma.user.findUnique({ where: { email: toEmail } }),
+  async wire(userId: string, recipientEmail: string, sum: string): Promise<MappedTransaction> {
+    const [sender, recipientUser] = await Promise.all([
+      this.ensurePaymentClient(userId),
+      this.prisma.user.findUnique({ where: { email: recipientEmail } }),
     ]);
-    if (!recipient) throw new NotFoundException('Recipient not found');
-    if (sender.id === recipient.id) throw new BadRequestException('Cannot transfer to yourself');
 
-    const tx = await this.client.transfer({
-      fromClientId: sender.paymentClientId,
-      toClientId: recipient.paymentClientId,
-      amount,
-      idempotencyKey: crypto.randomUUID(),
-    });
-    return this.mapTransaction(tx, sender.walletId);
+    if (!recipientUser) throw new NotFoundException('Recipient not found');
+    if (sender.id === recipientUser.id) throw new BadRequestException('Cannot wire to yourself');
+
+    const recipient = await this.ensurePaymentClient(recipientUser.id);
+
+    try {
+      const tx = await this.client.transfer({
+        fromClientId: sender.paymentClientId!,
+        toClientId: recipient.paymentClientId!,
+        amount: sum,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      return this.mapTransaction(tx, sender.walletId!, new Map([[recipient.walletId!, recipient.name]]));
+    } catch (err) {
+      if (err instanceof PaymentServiceError) {
+        if (err.isInsufficientFunds) throw new BadRequestException('Insufficient funds');
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
   }
 
-  async listTransactions(userId: string, page?: number, limit?: number, type?: string) {
-    const user = await this.findUser(userId);
+  async getLedger(userId: string, page?: number, limit?: number, type?: string) {
+    const user = await this.ensurePaymentClient(userId);
 
-    // SDK accepts TxType ('TOPUP' | 'TRANSFER' | 'WITHDRAWAL'), not our mapped types.
-    // Map client-facing filter to SDK filter:
-    //   'deposit'  → SDK type 'TOPUP'
-    //   'sent'     → SDK type 'TRANSFER' (then post-filter by direction)
-    //   'received' → SDK type 'TRANSFER' (then post-filter by direction)
-    //   undefined  → no filter
     let sdkType: 'TOPUP' | 'TRANSFER' | undefined;
     if (type === 'deposit') sdkType = 'TOPUP';
     if (type === 'sent' || type === 'received') sdkType = 'TRANSFER';
 
     const result = await this.client.listTransactions({
-      clientId: user.paymentClientId,
-      page,
-      limit,
-      type: sdkType,
+      clientId: user.paymentClientId!,
+      page, limit, type: sdkType,
     });
 
     // Batch-resolve counterparty names
@@ -418,7 +463,7 @@ export class PaymentService {
     });
     const nameMap = new Map(counterparties.map(u => [u.walletId, u.name]));
 
-    let items = result.items.map(tx => this.mapTransaction(tx, user.walletId, nameMap));
+    let items = result.items.map(tx => this.mapTransaction(tx, user.walletId!, nameMap));
 
     // Post-filter 'sent' vs 'received' (both are SDK type TRANSFER)
     if (type === 'sent' || type === 'received') {
@@ -428,37 +473,52 @@ export class PaymentService {
     return { items, total: result.total, page: result.page, limit: result.limit };
   }
 
-  // NOTE: When filtering by 'sent' or 'received', the `total` from SDK reflects all TRANSFER
-  // transactions (both directions). For the prototype this is acceptable — pagination may show
-  // fewer items than `limit` on some pages. A production fix would add direction-aware counting
-  // in payment-service itself.
+  /** Lazily creates a payment-service client + wallet on first wallet access */
+  private async ensurePaymentClient(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (user.paymentClientId && user.walletId) return user;
 
-  private mapTransaction(tx: Transaction, myWalletId: string, nameMap?: Map<string, string>): MappedTransaction {
-    let type: 'deposit' | 'sent' | 'received';
+    const paymentClient = await this.client.createClient({
+      email: user.email, name: user.name, platformId: this.platformId,
+    });
+
+    const walletId = paymentClient.wallet?.id;
+    if (!walletId) {
+      throw new BadRequestException('Payment wallet was not provisioned');
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { paymentClientId: paymentClient.id, walletId },
+    });
+  }
+
+  private mapTransaction(
+    tx: Transaction,
+    myWalletId: string,
+    nameMap?: Map<string | null, string>,
+  ): MappedTransaction {
+    let txType: 'deposit' | 'sent' | 'received';
     let counterpartyWalletId: string | null = null;
 
     if (tx.type === 'TOPUP') {
-      type = 'deposit';
+      txType = 'deposit';
     } else if (tx.fromWalletId === myWalletId) {
-      type = 'sent';
-      counterpartyWalletId = tx.toWalletId;
+      txType = 'sent';
+      counterpartyWalletId = tx.toWalletId ?? null;
     } else {
-      type = 'received';
-      counterpartyWalletId = tx.fromWalletId;
+      txType = 'received';
+      counterpartyWalletId = tx.fromWalletId ?? null;
     }
 
     return {
       id: tx.id,
-      type,
-      amount: tx.amount,
+      type: txType,
+      sum: tx.amount,
       status: tx.status.toLowerCase(),
-      counterparty: counterpartyWalletId && nameMap ? nameMap.get(counterpartyWalletId) ?? null : null,
+      counterparty: counterpartyWalletId && nameMap ? (nameMap.get(counterpartyWalletId) ?? null) : null,
       createdAt: tx.createdAt,
     };
-  }
-
-  private async findUser(userId: string) {
-    return this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
   }
 }
 ```
@@ -468,7 +528,7 @@ export class PaymentService {
 For the "send money" flow, frontend needs to check if recipient exists:
 
 ```
-GET /users/search?email=john@example.com
+GET /v1/recipients/check?email=john@example.com
 → { found: true, name: "John Doe" }
 → { found: false }
 ```
@@ -489,9 +549,38 @@ Each client backend has its OWN error format via `GlobalExceptionFilter`. Styles
 **Style C** (API): `{ "success": false, "error": { "code": "ERR_VALIDATION", "message": "..." } }`
 **Style D** (verbose): `{ "ok": false, "errors": [{ "field": "amount", "reason": "Required" }] }`
 
-`GlobalExceptionFilter` handles two sources of errors:
-1. **NestJS `HttpException`** (from `ValidationPipe`, guards, own throws) — contains `message` string or `message[]` array. For field-level error styles (like Style D), parse `ValidationPipe`'s array of messages into `{ field, reason }` pairs.
-2. **`PaymentServiceError`** (from SDK, caught in payment bridge, re-thrown as NestJS exception) — contains single `message` string. Map to the client's error format as a general error, not field-level.
+`GlobalExceptionFilter` handles THREE sources of errors:
+1. **NestJS `HttpException`** (from `ValidationPipe`, guards, own throws) — contains `message` string or `message[]` array.
+2. **`PaymentServiceError`** (from SDK, may leak through bridge) — map `isInsufficientFunds` → 422, otherwise → 502. Always extract `message` and format to client's error style.
+3. **Unknown errors** — log with `console.error`, return 500 with generic message.
+
+```typescript
+import { PaymentServiceError } from '@fintech/payment-sdk';
+
+@Catch()
+export class GlobalExceptionFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost): void {
+    const ctx = host.switchToHttp();
+    const res = ctx.getResponse<Response>();
+
+    if (exception instanceof HttpException) {
+      // ... format to client's error style
+      return;
+    }
+
+    if (exception instanceof PaymentServiceError) {
+      const status = exception.isInsufficientFunds
+        ? HttpStatus.UNPROCESSABLE_ENTITY
+        : HttpStatus.BAD_GATEWAY;
+      // ... format to client's error style with exception.message
+      return;
+    }
+
+    console.error('Unhandled exception:', exception);
+    // ... return 500 with generic message
+  }
+}
+```
 
 Never leak payment-service error structure (codes, traceId, original format).
 
@@ -499,21 +588,21 @@ Never leak payment-service error structure (codes, traceId, original format).
 
 ```env
 NODE_ENV=development
-PORT=<unique, e.g. 3010>
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/<client>_db
+PORT=<unique, e.g. 3014>
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/<slug>_db
 JWT_SECRET=<random 32+ chars>
 JWT_EXPIRES_IN=7d
 PAYMENT_API_URL=http://localhost:3004
 PAYMENT_API_KEY=<read from apps/payment-service/.env — NEVER guess this value>
-PLATFORM_ID=<client slug, e.g. "acme">
+PLATFORM_ID=<client slug, e.g. "cactus">
 FRONTEND_URL=http://localhost:<web-port>
 ```
 
 **IMPORTANT:** Before writing `.env`, read actual values from:
 - `PAYMENT_API_KEY` → `apps/payment-service/.env` (field `API_KEY`)
-- `DATABASE_URL` format → any existing client's `.env` (e.g. `apps/greenapple-api/.env`) — the username/password may differ from `postgres:postgres` in local dev
+- `DATABASE_URL` format → any existing platform's `.env` (e.g. `platforms/orange/api/.env`) — the username/password may differ from `postgres:postgres` in local dev
 
-All validated at startup via class-validator. App crashes on missing required vars.
+All validated at startup via class-validator (extend `BaseEnvironmentVariables` from `@fintech/shared-config`). App crashes on missing required vars.
 
 ### 3.13 Endpoint Naming (Unique Per Client)
 
@@ -523,58 +612,80 @@ All validated at startup via class-validator. App crashes on missing required va
 | Login | `POST /auth/login` | `POST /signin` | `POST /api/sessions` | `POST /v1/account/login` |
 | Balance | `GET /wallet/balance` | `GET /account/funds` | `GET /api/balance` | `GET /v1/wallet` |
 | Deposit | `POST /wallet/deposit` | `POST /funds/add` | `POST /api/deposit` | `POST /v1/wallet/fund` |
-| Transfer | `POST /wallet/transfer` | `POST /funds/send` | `POST /api/send` | `POST /v1/payments/send` |
+| Transfer | `POST /wallet/transfer` | `POST /funds/send` | `POST /api/send` | `POST /v1/wallet/send` |
 | Search user | `GET /users/search` | `GET /members/find` | `GET /api/users/lookup` | `GET /v1/recipients/check` |
-| History | `GET /wallet/history` | `GET /funds/activity` | `GET /api/transactions` | `GET /v1/payments/history` |
+| History | `GET /wallet/history` | `GET /funds/activity` | `GET /api/transactions` | `GET /v1/wallet/ledger` |
 | Health | `GET /health` | `GET /health` | `GET /health` | `GET /health` |
 
 ### 3.14 Dockerfile
 
-Multi-stage build:
+Multi-stage build. Context is monorepo root (for pnpm workspace deps):
 
 ```dockerfile
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
+RUN corepack enable
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY packages/payment-sdk ./packages/payment-sdk
-COPY apps/<client>-api ./apps/<client>-api
-RUN corepack enable && pnpm install --frozen-lockfile
-RUN pnpm turbo build --filter=@fintech/<client>-api
 
-FROM node:20-alpine
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY packages/payment-sdk ./packages/payment-sdk
+COPY packages/shared-auth ./packages/shared-auth
+COPY packages/shared-config ./packages/shared-config
+COPY packages/shared-health ./packages/shared-health
+COPY packages/shared-prisma ./packages/shared-prisma
+COPY platforms/<slug>/api ./platforms/<slug>/api
+
+RUN pnpm install --frozen-lockfile
+
+WORKDIR /app/platforms/<slug>/api
+RUN npx prisma generate
+RUN pnpm build
+
+FROM node:22-alpine AS production
+RUN corepack enable
 WORKDIR /app
-COPY --from=builder /app/apps/<client>-api/dist ./dist
-COPY --from=builder /app/apps/<client>-api/prisma ./prisma
-COPY --from=builder /app/apps/<client>-api/prisma.config.ts ./
-COPY --from=builder /app/apps/<client>-api/package.json ./
-COPY --from=builder /app/apps/<client>-api/node_modules ./node_modules
-COPY --from=builder /app/apps/<client>-api/generated ./generated
-EXPOSE 3000
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/platforms/<slug>/api/dist ./platforms/<slug>/api/dist
+COPY --from=builder /app/platforms/<slug>/api/src/generated ./platforms/<slug>/api/src/generated
+COPY platforms/<slug>/api/package.json ./platforms/<slug>/api/package.json
+COPY platforms/<slug>/api/prisma ./platforms/<slug>/api/prisma
+COPY platforms/<slug>/api/prisma.config.ts ./platforms/<slug>/api/prisma.config.ts
+
+RUN pnpm install --frozen-lockfile
+
+WORKDIR /app/platforms/<slug>/api
+EXPOSE <apiPort>
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
 ```
 
+**Key points:**
+- Copy full `packages/` from builder (includes built dist/) — shared packages must be available at runtime
+- `corepack enable` for pnpm in both stages
+- `prisma.config.ts` MUST be copied to production stage (Prisma 7 requires it)
+
 ---
 
-## 4. Frontend (`<client>-web`)
+## 4. Frontend (`platforms/<slug>/web`)
 
 ### 4.1 Tech Stack & Versions
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Framework | Next.js (App Router, Server Components + Server Actions) | 15.x or 16.x |
+| Framework | Next.js (App Router, Server Components + Server Actions) | 15.x |
 | Styling | Tailwind CSS | 4.x |
 | HTTP | Native fetch (server-side only) | — |
 | Auth | JWT in httpOnly cookie | — |
 
-No TanStack Query, no Zustand, no client-side state management libraries. Next.js 16 Server Components handle data loading, Server Actions handle mutations. Only forms are `'use client'`.
+No TanStack Query, no Zustand, no client-side state management libraries. Server Components handle data loading, Server Actions handle mutations. Only forms are `'use client'`.
 
 ### 4.2 Project Structure
 
 ```
-<client>-web/
+platforms/<slug>/web/
   src/
     app/
-      layout.tsx               # root: fonts, metadata, global styles
+      layout.tsx               # root: fonts, metadata, global styles, favicon
       page.tsx                  # landing page
       (auth)/
         login/page.tsx
@@ -586,30 +697,30 @@ No TanStack Query, no Zustand, no client-side state management libraries. Next.j
         send/page.tsx           # SC: renders send form
         history/page.tsx        # SC: loads paginated list (searchParams for filter/page)
     lib/
-      api.ts                    # server-side fetch wrapper for <client>-api
+      api.ts                    # server-side fetch wrapper + ApiError class
     components/
-      ui/                       # button, input, card, badge, modal
+      ui/                       # button, input, card, badge
       layout/                   # header, sidebar, nav, footer
-      dashboard/
-        balance-card.tsx        # SC
-        recent-transactions.tsx # SC
-        quick-actions.tsx       # SC
       forms/
         login-form.tsx          # 'use client' — form with useActionState
         register-form.tsx       # 'use client'
         deposit-form.tsx        # 'use client'
-        send-form.tsx           # 'use client' — email search + amount + confirm
+        send-form.tsx           # 'use client' — email search + amount + useEffect success detection
     actions/
       auth.ts                   # server actions: login, register, logout
-      payment.ts                # server actions: deposit, transfer
+      payment.ts                # server actions: deposit (+ redirect), transfer
       user.ts                   # server action: searchUser (for send form)
   public/
-  tailwind.config.ts
+    logo.svg                    # full logo (icon + wordmark)
+    favicon.svg                 # icon only
   next.config.ts
   package.json
   tsconfig.json
   .env.example
+  .env.local                    # gitignored, needed for dev
   .gitignore
+  .dockerignore                 # REQUIRED: node_modules, .next, .env.local
+  Dockerfile
 ```
 
 ### 4.3 Data Flow Pattern
@@ -620,6 +731,7 @@ page.tsx (Server Component)
   → reads cookie via cookies()
   → calls api() with token
   → renders HTML with data
+  → graceful error handling: catch non-401 errors, show empty state
   → no loading spinners, no client JS
 ```
 
@@ -628,8 +740,8 @@ page.tsx (Server Component)
 form (Client Component with useActionState)
   → calls server action
   → server action calls api() with token from cookie
-  → on success: revalidatePath('/dashboard') + return success state
-  → on error: return error state (displayed in form)
+  → on success: revalidatePath('/dashboard') + redirect (deposit) or return null (wire)
+  → on error: return error string (displayed in form)
 ```
 
 **User search (interactive, from client):**
@@ -642,22 +754,59 @@ send-form.tsx ('use client')
 
 ### 4.4 API Client (`lib/api.ts`)
 
-Server-side only fetch wrapper:
+Server-side only fetch wrapper with `ApiError` class (no separate `errors.ts`):
 
 ```typescript
 import { cookies } from 'next/headers';
 
-const API_URL = process.env.API_URL!;
+const API_URL = process.env['API_URL']!;
 
-export async function api<T>(path: string, options: {
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: unknown,
+  ) {
+    const msg = ApiError.extractMessage(body);
+    super(msg);
+    this.name = 'ApiError';
+  }
+
+  get isUnauthorized() { return this.status === 401; }
+
+  private static extractMessage(body: unknown): string {
+    // Parse error based on backend's error format
+    // Each platform must adapt this to match its backend error style
+    if (typeof body !== 'object' || body === null) return 'Request failed';
+    const b = body as { errors?: Array<{ reason?: string }> };
+    if (Array.isArray(b.errors) && b.errors.length > 0) {
+      return b.errors[0].reason ?? 'Request failed';
+    }
+    return 'Request failed';
+  }
+}
+
+interface ApiOptions {
   method?: string;
-  body?: unknown;
-} = {}): Promise<T> {
+  body?: Record<string, unknown>;
+  query?: Record<string, string | number | undefined>;
+}
+
+export async function api<T>(path: string, options: ApiOptions = {}): Promise<T> {
   const cookieStore = await cookies();
   const token = cookieStore.get('token')?.value;
 
-  const res = await fetch(`${API_URL}${path}`, {
-    method: options.method ?? 'GET',
+  let url = `${API_URL}${path}`;
+  if (options.query) {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(options.query)) {
+      if (v != null) params.set(k, String(v));
+    }
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+  }
+
+  const res = await fetch(url, {
+    method: options.method ?? (options.body ? 'POST' : 'GET'),
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -667,7 +816,7 @@ export async function api<T>(path: string, options: {
   });
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ message: 'Request failed' }));
+    const error = await res.json().catch(() => ({ errors: [{ reason: 'Request failed' }] }));
     throw new ApiError(res.status, error);
   }
 
@@ -675,22 +824,10 @@ export async function api<T>(path: string, options: {
 }
 ```
 
-`ApiError` class (defined in the same file or separate `lib/errors.ts`):
-
-```typescript
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly body: unknown,
-  ) {
-    super(typeof body === 'object' && body && 'message' in body
-      ? String((body as Record<string, unknown>).message)
-      : 'Request failed');
-  }
-}
-```
-
-Used only in Server Components and Server Actions — never imported from `'use client'` files.
+**Key details:**
+- `ApiError` is defined in the same file (no separate `lib/errors.ts`)
+- `query` option for GET requests with query parameters (don't inline in path string)
+- Used only in Server Components and Server Actions — never imported from `'use client'` files
 
 ### 4.5 Auth Flow
 
@@ -700,7 +837,7 @@ Used only in Server Components and Server Actions — never imported from `'use 
    const cookieStore = await cookies();
    cookieStore.set('token', jwt, {
      httpOnly: true,
-     secure: process.env.NODE_ENV === 'production',
+     secure: process.env['NODE_ENV'] === 'production',
      sameSite: 'lax',
      path: '/',
      maxAge: 60 * 60 * 24 * 7, // 7 days
@@ -708,7 +845,7 @@ Used only in Server Components and Server Actions — never imported from `'use 
    redirect('/dashboard');
    ```
 3. Dashboard layout reads cookie — if missing → `redirect('/login')`
-4. Logout → server action deletes cookie → redirect to login
+4. Logout → server action deletes cookie → redirect to `/`
 
 ### 4.6 Pages Detail
 
@@ -721,6 +858,7 @@ Used only in Server Components and Server Actions — never imported from `'use 
 
 **Dashboard (`/dashboard`):**
 - Server Component loads balance + last 5 transactions on render
+- **Graceful error handling**: wrap API calls in try/catch, show empty state (balance $0, no transactions) if payment-service is down or wallet not provisioned
 - Balance card (large number, USD)
 - Quick action buttons: "Deposit" and "Send Money" (links to `/deposit`, `/send`)
 - Recent transactions list (links to `/history`)
@@ -729,20 +867,37 @@ Used only in Server Components and Server Actions — never imported from `'use 
 - `deposit-form.tsx` (`'use client'`) with `useActionState`
 - Amount input (number)
 - "Confirm" button
-- Server action: calls backend deposit → `revalidatePath('/dashboard')` → return success/error
-- On success: show new balance + "Back to Dashboard" link
+- Server action: calls backend deposit → `revalidatePath('/dashboard')` + `revalidatePath('/history')` → `redirect('/dashboard')`
+- User sees updated balance on dashboard immediately
 
 **Send (`/send`):**
 - `send-form.tsx` (`'use client'`) — multi-step form:
-  - Step 1: email input → blur/button triggers `searchUser` server action → shows name or "not found"
+  - Step 1: email input → button triggers `searchUser` server action → shows name or "not found"
   - Step 2: amount input (only visible if user found)
-  - Step 3: confirm (shows summary: recipient + amount)
-- Server action: calls backend transfer → `revalidatePath('/dashboard')` → return result
-- Shows final status (success / insufficient funds / error)
+  - Submit triggers `wireAction` via `useActionState`
+- **Success detection pattern** (avoids stale closure bug):
+  ```typescript
+  const [sendError, sendFormAction, pending] = useActionState(wireAction, null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (hasSubmitted && !pending && sendError === null) {
+      setStep('done');
+    }
+  }, [hasSubmitted, pending, sendError]);
+
+  // In form action:
+  action={(fd) => {
+    setHasSubmitted(true);
+    sendFormAction(fd);
+  }}
+  ```
+  **DO NOT check `sendError` inside the action wrapper** — it captures stale closure value.
+- Step 3: "Wire Complete!" success screen with back to dashboard link
 
 **History (`/history`):**
 - Server Component reads `searchParams` for page and type filter
-- Calls backend with params → renders list
+- Calls backend with `query` option → renders list
 - Filter: links/buttons that set `?type=deposit` / `?type=sent` / `?type=received`
 - Pagination: links with `?page=2` etc.
 - Each row: type badge, amount (+/-), date, status, counterparty name
@@ -756,12 +911,12 @@ Each generated frontend must have a visually distinct identity:
 - **Typography**: different Google Fonts pairing (heading + body)
 - **Layout variant**: sidebar-left / sidebar-right / top-nav / minimal
 - **Terminology**: unique wording for all actions:
-  - "Send Money" vs "Transfer Funds" vs "Pay Someone" vs "Move Money"
+  - "Send Money" vs "Transfer Funds" vs "Pay Someone" vs "Wire Money"
   - "Deposit" vs "Add Funds" vs "Top Up" vs "Load Balance"
-  - "Balance" vs "Available Funds" vs "Account Total" vs "Your Money"
+  - "Balance" vs "Available Funds" vs "Account Total" vs "My Money"
 - **Landing page style**: hero-centered / hero-split / hero-gradient / minimal
 - **Transaction display**: table / card list / timeline
-- **Brand**: unique name, tagline, placeholder logo text
+- **Brand**: unique name, tagline, logo SVG, favicon SVG
 
 ### 4.8 Environment Variables
 
@@ -791,37 +946,40 @@ API_URL=http://localhost:<client-api-port>
 ### 5.1 Location
 
 ```
-apps/
-  <client>-api/
-  <client>-web/
+platforms/
+  <slug>/
+    api/       # NestJS backend
+    web/       # Next.js frontend
+    docker-compose.yml
 packages/
   payment-sdk/         # already exists
+  shared-auth/         # already exists
+  shared-prisma/       # already exists
+  shared-health/       # already exists
+  shared-config/       # already exists
 ```
 
 ### 5.2 tsconfig.base.json
 
-`@fintech/payment-sdk` path alias is already configured:
-
-```json
-"@fintech/payment-sdk": ["${configDir}/packages/payment-sdk/src/index.ts"]
-```
+`@fintech/*` path aliases are already configured in the root tsconfig. Each platform's `tsconfig.json` overrides them to point at `dist/index` instead of source.
 
 ### 5.3 Backend Dependencies
 
 ```json
 {
-  "name": "@fintech/<client>-api",
+  "name": "@fintech/<slug>-api",
   "scripts": {
     "build": "nest build",
     "start": "nest start",
     "start:dev": "prisma generate && nest start --watch",
-    "start:prod": "node dist/main",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:migrate:prod": "prisma migrate deploy"
+    "start:prod": "node dist/main"
   },
   "dependencies": {
     "@fintech/payment-sdk": "workspace:*",
+    "@fintech/shared-auth": "workspace:*",
+    "@fintech/shared-prisma": "workspace:*",
+    "@fintech/shared-health": "workspace:*",
+    "@fintech/shared-config": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
@@ -831,9 +989,7 @@ packages/
     "@nestjs/swagger": "^11.0.0",
     "@nestjs/terminus": "^11.0.0",
     "@prisma/adapter-pg": "^7.0.0",
-    "@prisma/client": "^7.0.0",
     "pg": "^8.0.0",
-    "bcrypt": "^5.1.0",
     "class-transformer": "^0.5.0",
     "class-validator": "^0.14.0",
     "dotenv": "^16.0.0",
@@ -845,7 +1001,6 @@ packages/
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
-    "@types/bcrypt": "^5.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.0.0",
@@ -856,13 +1011,15 @@ packages/
 }
 ```
 
+Note: `bcrypt` and `@types/bcrypt` are NOT needed — `@fintech/shared-auth` provides `hashPassword`/`comparePassword`.
+
 ### 5.4 Frontend Dependencies
 
 ```json
 {
-  "name": "@fintech/<client>-web",
+  "name": "@fintech/<slug>-web",
   "dependencies": {
-    "next": "^16.0.0",
+    "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -878,18 +1035,22 @@ packages/
 
 ### 5.5 tsconfig (backend)
 
-**Critical:** Override `incremental: false` (prevents tsbuildinfo caching issues with `deleteOutDir`), set `rootDir: "./src"`, and override `@fintech/payment-sdk` path to point at compiled `dist/index` (not source `.ts` — that expands rootDir beyond `src/`):
+**Critical:** Override `incremental: false`, set `rootDir: "./src"`, and override ALL `@fintech/*` paths to point at compiled `dist/index` (3 levels up from `platforms/<slug>/api/`):
 
 ```json
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
     "incremental": false,
     "baseUrl": "./",
     "paths": {
-      "@fintech/payment-sdk": ["../../packages/payment-sdk/dist/index"]
+      "@fintech/payment-sdk": ["../../../packages/payment-sdk/dist/index"],
+      "@fintech/shared-auth": ["../../../packages/shared-auth/dist/index"],
+      "@fintech/shared-prisma": ["../../../packages/shared-prisma/dist/index"],
+      "@fintech/shared-health": ["../../../packages/shared-health/dist/index"],
+      "@fintech/shared-config": ["../../../packages/shared-config/dist/index"]
     }
   },
   "include": ["src/**/*"],
@@ -897,13 +1058,13 @@ packages/
 }
 ```
 
-**Why `dist/index` in paths?** The base tsconfig points to `packages/payment-sdk/src/index.ts`. When TypeScript resolves this, it includes SDK source in compilation, expanding `rootDir` to the workspace root. Pointing to `dist/index` makes TypeScript read only `.d.ts` files (type declarations) without including them in compilation.
+**Why `dist/index` in paths?** The base tsconfig points to `packages/*/src/index.ts`. When TypeScript resolves this, it includes SDK source in compilation, expanding `rootDir` to the workspace root. Pointing to `dist/index` makes TypeScript read only `.d.ts` files.
 
-**Why `incremental: false`?** The base tsconfig has `incremental: true`. Combined with `deleteOutDir: true` in nest-cli.json, this causes `nest start --watch` to delete dist but the stale `.tsbuildinfo` file thinks nothing changed, so tsc skips emission. Disabling incremental avoids this issue.
+**Why `incremental: false`?** Combined with `deleteOutDir: true` in nest-cli.json, incremental mode causes stale `.tsbuildinfo` — tsc thinks nothing changed and skips emission.
 
 ### 5.6 pnpm v10 Native Dependencies
 
-pnpm v10 blocks native build scripts by default. For packages like `bcrypt` and `prisma`, the root `package.json` must include:
+pnpm v10 blocks native build scripts by default. Check root `package.json` has:
 
 ```json
 {
@@ -912,8 +1073,6 @@ pnpm v10 blocks native build scripts by default. For packages like `bcrypt` and 
   }
 }
 ```
-
-Check if these entries already exist before adding — don't duplicate.
 
 ### 5.7 Frontend .env.local
 
@@ -928,42 +1087,13 @@ This file is gitignored but needed for `pnpm dev` to work.
 
 ### 5.8 Docker
 
-```yaml
-<client>-api:
-  build:
-    context: .
-    dockerfile: apps/<client>-api/Dockerfile
-  ports:
-    - "<api-port>:3000"
-  environment:
-    - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/<client>_db
-    - JWT_SECRET=${<CLIENT>_JWT_SECRET}
-    - PAYMENT_API_URL=http://payment-service:3004
-    - PAYMENT_API_KEY=${PAYMENT_API_KEY}
-    - PLATFORM_ID=<client-slug>
-    - FRONTEND_URL=http://localhost:<web-port>
-  depends_on:
-    - postgres
-    - payment-service
-
-<client>-web:
-  build:
-    context: .
-    dockerfile: apps/<client>-web/Dockerfile
-  ports:
-    - "<web-port>:3000"
-  environment:
-    - API_URL=http://<client>-api:3000
-    - NEXT_PUBLIC_APP_NAME=<Client Display Name>
-  depends_on:
-    - <client>-api
-```
+Use `platforms/<slug>/docker-compose.yml` with Caddy labels for `<slug>.localhost` routing. See SKILL.md section 7 for full template.
 
 ### 5.9 Database
 
 Add to `docker/postgres/init.sql`:
 ```sql
-CREATE DATABASE <client>_db;
+CREATE DATABASE <slug>_db;
 ```
 
 ---
@@ -972,7 +1102,7 @@ CREATE DATABASE <client>_db;
 
 ### 6.1 Check Existing Clients
 
-Before generating, scan `apps/` for existing `*-api` and `*-web` dirs. Read `docs/client-registry.md` for used ports, styles, colors. New client must not duplicate any.
+Before generating, scan `platforms/` for existing platform directories. Read `docs/client-registry.md` for used ports, styles, colors. New client must not duplicate any.
 
 ### 6.2 Randomize Structure
 
@@ -995,34 +1125,39 @@ Before generating, scan `apps/` for existing `*-api` and `*-web` dirs. Read `doc
 Every project MUST:
 
 - Use `@fintech/payment-sdk` for all payment operations
-- NestJS 11 + Prisma 7 conventions
-- JWT auth with bcrypt (12 rounds)
-- `User` model with `paymentClientId` + `walletId` fields
-- Register: create payment client FIRST (with `platformId`), then local User (store `walletId` from response)
-- Payment bridge maps SDK `Transaction` → client-friendly format (hide walletIds, add direction + counterparty name)
-- Balance fetched via `getClient()` → `wallet.balance`
+- NestJS 11 + Prisma 7 conventions (no `url` in datasource, output inside `src/`)
+- PrismaService via `withPrismaAdapterPg(PrismaClient)` from `@fintech/shared-prisma`
+- Auth via `@fintech/shared-auth` — `createAuthModule()`, `JwtAuthGuard`, `CurrentUser`, `hashPassword`, `comparePassword`
+- AuthModule imports `JwtModule.registerAsync(...)` directly
+- Health via local `HealthModule` with `TerminusModule` (NOT `createHealthModule` — it returns DynamicModule which cannot be extended)
+- Env validation via `BaseEnvironmentVariables` + `createValidator` from `@fintech/shared-config`
+- `User` model with `paymentClientId?` + `walletId?` optional fields (lazy provisioning)
+- Register: create local User only (NO payment-service call)
+- `ensurePaymentClient()` with walletId null check
+- `GlobalExceptionFilter` handles `HttpException` + `PaymentServiceError`
 - `ValidationPipe` with whitelist + forbidNonWhitelisted
-- `GlobalExceptionFilter` catching `PaymentServiceError` and re-mapping
-- Never expose payment-service details to frontend
+- `CORS` for frontend origin
+- Swagger in dev mode
 - `GET /health` (public)
 - Env validation at startup (crash on missing)
-- CORS for frontend origin
-- Swagger in dev mode
+- Never expose payment-service details to frontend
 - Strict TS, no `any`
-- Frontend: Server Components for data, Server Actions for mutations
-- Frontend: httpOnly cookies for auth
-- Frontend: `lib/api.ts` is server-side only (uses `cookies()`)
+- Frontend: Server Components for data (graceful error handling), Server Actions for mutations
+- Frontend: httpOnly cookies for auth, `lib/api.ts` is server-only with `query` support
+- Frontend: `ApiError` in `api.ts` (not separate `errors.ts`)
 - Frontend: forms use `useActionState` pattern
-- Frontend: history uses URL searchParams for pagination/filters (no client state)
+- Frontend: send-form success detection via `useEffect` + `hasSubmitted` (no stale closure)
+- Frontend: deposit action → `redirect('/dashboard')` after success
+- Frontend: history uses URL searchParams for pagination/filters
 - Idempotency keys generated by backend as UUID v4
 
 ### 6.5 Naming Convention
 
-Given slug `acme`:
-- Backend: `apps/acme-api/`, package `@fintech/acme-api`
-- Frontend: `apps/acme-web/`, package `@fintech/acme-web`
-- Database: `acme_db`
-- Ports: sequential from 3010 (API 3010, Web 3011; next client 3012/3013; ...)
+Given slug `cactus`:
+- Backend: `platforms/cactus/api/`, package `@fintech/cactus-api`
+- Frontend: `platforms/cactus/web/`, package `@fintech/cactus-web`
+- Database: `cactus_db`
+- Ports: sequential from 3014 (greenapple=3010/3011, orange=3012/3013, cactus=3014/3015; next=3016/3017)
 
 ---
 
@@ -1033,8 +1168,9 @@ Track all generated clients in `docs/client-registry.md`:
 ```markdown
 | Slug | API Port | Web Port | Endpoint Style | Error Style | Color Hue | Layout | Status |
 |------|----------|----------|----------------|-------------|-----------|--------|--------|
-| acme | 3010     | 3011     | /wallet/*      | nested      | 220 (blue)| sidebar-left | active |
-| bolt | 3012     | 3013     | /funds/*       | flat        | 150 (green)| top-nav | active |
+| greenapple | 3010 | 3011 | /account/* | nested | 142 (green) | top-nav | active |
+| orange | 3012 | 3013 | /wallet/* | nested-A | 30 (orange) | sidebar-left | active |
+| cactus | 3014 | 3015 | /v1/wallet/* | verbose-D | 165 (teal) | sidebar-left | active |
 ```
 
 Claude Code skill must read this before generating and update it after.
@@ -1047,42 +1183,50 @@ Claude Code skill must read this before generating and update it after.
 - [ ] `prisma.config.ts` with `defineConfig`
 - [ ] `schema.prisma` — no `url` in datasource
 - [ ] Import from `generated/prisma/client`
-- [ ] `User` model with `paymentClientId @unique` + `walletId @unique`
-- [ ] Registration: payment client first (with `platformId`), then User (store both IDs)
+- [ ] `User` model with `paymentClientId? @unique` + `walletId? @unique` (optional — lazy provisioning)
+- [ ] Registration: local User only (NO payment-service call)
+- [ ] `ensurePaymentClient()` with walletId null check (throw if null)
 - [ ] `PLATFORM_ID` env var set to client slug
 - [ ] 409 duplicate email+platform handled
-- [ ] JWT + Passport + bcrypt auth
-- [ ] `@CurrentUser()` decorator
-- [ ] Payment bridge: resolves `paymentClientId` from `userId`
+- [ ] AuthModule imports `JwtModule.registerAsync(...)` directly
+- [ ] `createAuthModule()` in app.module.ts for JwtStrategy/JwtAuthGuard
+- [ ] `hashPassword`/`comparePassword` from `@fintech/shared-auth` (NOT local bcrypt)
+- [ ] `JwtAuthGuard` + `@CurrentUser()` from `@fintech/shared-auth`
+- [ ] Payment bridge: `ensurePaymentClient()` before every wallet operation
 - [ ] Balance via `getClient()` → `wallet.balance`
 - [ ] Transaction mapping: hides walletIds, adds direction (deposit/sent/received) + counterparty name
 - [ ] Transfer: recipient found in LOCAL User table by email
 - [ ] Counterparty name resolved via `walletId` → local User lookup
 - [ ] User search endpoint: returns only `{ found, name }` — no IDs
 - [ ] Idempotency keys as UUID v4 (backend generates)
-- [ ] `GlobalExceptionFilter` with unique error format
+- [ ] `GlobalExceptionFilter` handles `HttpException` + `PaymentServiceError` + unknown
 - [ ] Payment-service IDs/errors never leaked
 - [ ] `ValidationPipe` in `main.ts`
 - [ ] CORS enabled
 - [ ] Swagger (dev)
 - [ ] `nest-cli.json` with tsc builder (NOT SWC), `deleteOutDir: true`
-- [ ] `tsconfig.json`: `rootDir: "./src"`, `incremental: false`, paths → `dist/index`
+- [ ] `tsconfig.json`: `rootDir: "./src"`, `incremental: false`, ALL paths → `../../../packages/<pkg>/dist/index`
 - [ ] Prisma output: `../src/generated/prisma` (inside src/)
-- [ ] PrismaService uses `@prisma/adapter-pg` + `pg.Pool` (NOT `datasourceUrl`)
+- [ ] PrismaService uses `withPrismaAdapterPg` mixin from `@fintech/shared-prisma`
 - [ ] `start:dev` script: `prisma generate && nest start --watch`
-- [ ] Env validation at startup
-- [ ] `GET /health` public
-- [ ] Dockerfile with multi-stage build
+- [ ] Env validation via `@fintech/shared-config` at startup
+- [ ] `GET /health` public via local HealthModule with TerminusModule
+- [ ] Swagger setup path: `'docs'` (Caddy strips `/api/` → public URL `/api/docs`)
+- [ ] Dockerfile with multi-stage build (corepack, full packages copy, prisma.config.ts in production)
 - [ ] `.gitignore` includes `generated/`, `dist/`, `.env`, `src/generated/`
 
 **Frontend:**
 - [ ] `API_URL` is server-only
-- [ ] `lib/api.ts` uses `cookies()` — never imported from client components
-- [ ] Server Components load data (balance, transactions, history)
+- [ ] `lib/api.ts` uses `cookies()` — server-only, with `query` support
+- [ ] `ApiError` class in `api.ts` (not separate file), with `extractMessage` matching backend error format
+- [ ] Server Components load data with **graceful error handling** (catch non-401, show empty state)
 - [ ] Server Actions handle mutations (deposit, transfer, login, register, logout)
+- [ ] **Frontend action URLs exactly match backend controller routes** (verify every path)
 - [ ] Forms use `useActionState` pattern
-- [ ] `revalidatePath('/dashboard')` after deposit/transfer
-- [ ] History uses URL searchParams for pagination and type filter
+- [ ] Deposit action: `revalidatePath` + `redirect('/dashboard')`
+- [ ] Wire action: `revalidatePath` + return null (success detected via `useEffect`)
+- [ ] Send-form: `useEffect + hasSubmitted` pattern for success detection (NO stale closure)
+- [ ] History uses URL searchParams for pagination and type filter, `query` option in api()
 - [ ] User search via server action (for send form)
 - [ ] httpOnly cookie with `secure` in production
 - [ ] Dashboard layout auth guard (redirect to /login)
@@ -1090,35 +1234,27 @@ Claude Code skill must read this before generating and update it after.
 - [ ] Landing page visually unique
 - [ ] Dashboard layout unique
 - [ ] Unique fonts, colors, terminology
-- [ ] Deposit flow: amount → confirm → success + new balance
-- [ ] Send flow: email search → name shown → amount → confirm → result
-- [ ] History: paginated, filtered by type, shows direction + counterparty
+- [ ] SVG logo + favicon in `public/`
+- [ ] Favicon reference in layout.tsx metadata
+- [ ] `.dockerignore` in web dir (`node_modules`, `.next`, `.env.local`) — prevents Docker build failures
+- [ ] Web Dockerfile with `output: 'standalone'` in next.config.ts
 
 **Monorepo:**
-- [ ] `@fintech/payment-sdk` path alias in `tsconfig.base.json`
+- [ ] `@fintech/*` path overrides in tsconfig.json (3 levels up: `../../../packages/<pkg>/dist/index`)
 - [ ] Root `package.json` has `pnpm.onlyBuiltDependencies` for bcrypt/prisma
 - [ ] `.env.local` created for web app (not just `.env.example`)
+- [ ] `.env` created for api with real PAYMENT_API_KEY from `apps/payment-service/.env`
 - [ ] `pnpm install` succeeds
-- [ ] `prisma generate` succeeds (from service dir)
-- [ ] `tsc` compiles without errors
-- [ ] `pnpm dev` starts both API and web successfully
+- [ ] `prisma generate` succeeds (from api dir)
+- [ ] `tsc --noEmit` compiles without errors (both api and web)
 - [ ] Database in `docker/postgres/init.sql`
-- [ ] Docker entries in `docker-compose.yml`
+- [ ] `platforms/<slug>/docker-compose.yml` with Caddy labels
 - [ ] `docs/client-registry.md` updated
 - [ ] No `any`, strict mode
 
----
-
-## 9. Example: First Client ("acme")
-
-- `apps/acme-api/` — port 3010
-- `apps/acme-web/` — port 3011
-- Database: `acme_db`
-
-Validates end-to-end flow:
-1. Register → creates payment client + user (with walletId) + JWT
-2. Login → JWT in cookie
-3. Dashboard → shows balance (via getClient) + recent transactions (mapped)
-4. Deposit → enter amount → balance increases → dashboard updated
-5. Send → find user by email → enter amount → transfer → see result
-6. History → all operations with direction, counterparty names, pagination
+**Deploy (MANDATORY — task is NOT complete without this):**
+- [ ] `docker compose build` succeeds
+- [ ] `docker compose up -d` — containers running
+- [ ] `http://<slug>.localhost` returns 200
+- [ ] `http://<slug>.localhost/api/docs` returns 200 (Swagger)
+- [ ] Return site URL and Swagger URL to user

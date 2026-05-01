@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { redirect } from 'next/navigation';
-import { ApiError } from '@/lib/errors';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -29,13 +28,13 @@ export default async function DashboardPage() {
   try {
     const [balRes, txRes] = await Promise.all([
       api<{ balance: string }>('/v1/wallet'),
-      api<LedgerResponse>('/v1/wallet/ledger?limit=5&page=1'),
+      api<LedgerResponse>('/v1/wallet/ledger', { query: { limit: '5', page: '1' } }),
     ]);
     balance = balRes.balance;
     recent = txRes.items;
   } catch (err) {
     if (err instanceof ApiError && err.isUnauthorized) redirect('/login');
-    throw err;
+    // Wallet not provisioned yet or payment-service down — show empty state
   }
 
   return (

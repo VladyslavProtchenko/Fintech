@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Apricot fruit icon -->
+  <g transform="translate(1, 1)">
+    <!-- Fruit left half -->
+    <path d="M15,30 C6,30 1,23 1,15 C1,7 6,4 15,4 Z" fill="#1d4ed8"/>
+    <!-- Fruit right half -->
+    <path d="M15,30 C24,30 29,23 29,15 C29,7 24,4 15,4 Z" fill="#1e40af"/>
+    <!-- Leaf -->
+    <path d="M15,4 C15,4 11,0 15,0 C19,0 15,4 15,4 Z" fill="#fbbf24"/>
+  </g>
+</svg>

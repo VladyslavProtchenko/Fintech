@@ -3,7 +3,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { api } from '@/lib/api';
-import { ApiError } from '@/lib/errors';
+import { ApiError } from '@/lib/api';
 
 export async function registerAction(
   _prev: string | null,

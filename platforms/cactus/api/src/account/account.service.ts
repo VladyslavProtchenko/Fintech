@@ -12,6 +12,7 @@ import type { MappedTransaction, PaginatedMappedTransactions } from './types/map
 @Injectable()
 export class AccountService {
   private readonly client: PaymentClient;
+  private readonly platformId: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -21,23 +22,24 @@ export class AccountService {
       baseUrl: config.getOrThrow('PAYMENT_API_URL'),
       apiKey: config.getOrThrow('PAYMENT_API_KEY'),
     });
+    this.platformId = config.getOrThrow('PLATFORM_ID');
   }
 
   async getBalance(userId: string): Promise<string> {
-    const user = await this.findUser(userId);
-    const paymentClient = await this.client.getClient(user.paymentClientId);
+    const user = await this.ensurePaymentClient(userId);
+    const paymentClient = await this.client.getClient(user.paymentClientId!);
     return paymentClient.wallet?.balance ?? '0';
   }
 
   async fund(userId: string, sum: string): Promise<MappedTransaction> {
-    const user = await this.findUser(userId);
+    const user = await this.ensurePaymentClient(userId);
     try {
       const tx = await this.client.topup({
-        clientId: user.paymentClientId,
+        clientId: user.paymentClientId!,
         amount: sum,
         idempotencyKey: crypto.randomUUID(),
       });
-      return this.mapTransaction(tx, user.walletId);
+      return this.mapTransaction(tx, user.walletId!);
     } catch (err) {
       if (err instanceof PaymentServiceError) {
         throw new BadRequestException(err.message);
@@ -47,22 +49,24 @@ export class AccountService {
   }
 
   async wire(userId: string, recipientEmail: string, sum: string): Promise<MappedTransaction> {
-    const [sender, recipient] = await Promise.all([
-      this.findUser(userId),
+    const [sender, recipientUser] = await Promise.all([
+      this.ensurePaymentClient(userId),
       this.prisma.user.findUnique({ where: { email: recipientEmail } }),
     ]);
 
-    if (!recipient) throw new NotFoundException('Recipient not found');
-    if (sender.id === recipient.id) throw new BadRequestException('Cannot wire to yourself');
+    if (!recipientUser) throw new NotFoundException('Recipient not found');
+    if (sender.id === recipientUser.id) throw new BadRequestException('Cannot wire to yourself');
+
+    const recipient = await this.ensurePaymentClient(recipientUser.id);
 
     try {
       const tx = await this.client.transfer({
-        fromClientId: sender.paymentClientId,
-        toClientId: recipient.paymentClientId,
+        fromClientId: sender.paymentClientId!,
+        toClientId: recipient.paymentClientId!,
         amount: sum,
         idempotencyKey: crypto.randomUUID(),
       });
-      return this.mapTransaction(tx, sender.walletId, new Map([[recipient.walletId, recipient.name]]));
+      return this.mapTransaction(tx, sender.walletId!, new Map([[recipient.walletId!, recipient.name]]));
     } catch (err) {
       if (err instanceof PaymentServiceError) {
         if (err.isInsufficientFunds) {
@@ -80,14 +84,14 @@ export class AccountService {
     limit?: number,
     type?: string,
   ): Promise<PaginatedMappedTransactions> {
-    const user = await this.findUser(userId);
+    const user = await this.ensurePaymentClient(userId);
 
     let sdkType: 'TOPUP' | 'TRANSFER' | undefined;
     if (type === 'deposit') sdkType = 'TOPUP';
     if (type === 'sent' || type === 'received') sdkType = 'TRANSFER';
 
     const result = await this.client.listTransactions({
-      clientId: user.paymentClientId,
+      clientId: user.paymentClientId!,
       page,
       limit,
       type: sdkType,
@@ -105,7 +109,7 @@ export class AccountService {
     });
     const nameMap = new Map(counterparties.map(u => [u.walletId, u.name]));
 
-    let items = result.items.map(tx => this.mapTransaction(tx, user.walletId, nameMap));
+    let items = result.items.map(tx => this.mapTransaction(tx, user.walletId!, nameMap));
 
     if (type === 'sent' || type === 'received') {
       items = items.filter(tx => tx.type === type);
@@ -114,10 +118,38 @@ export class AccountService {
     return { items, total: result.total, page: result.page, limit: result.limit };
   }
 
+  /** Lazily creates a payment-service client + wallet on first wallet access */
+  private async ensurePaymentClient(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+
+    if (user.paymentClientId && user.walletId) {
+      return user;
+    }
+
+    const paymentClient = await this.client.createClient({
+      email: user.email,
+      name: user.name,
+      platformId: this.platformId,
+    });
+
+    const walletId = paymentClient.wallet?.id;
+    if (!walletId) {
+      throw new BadRequestException('Payment wallet was not provisioned');
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        paymentClientId: paymentClient.id,
+        walletId,
+      },
+    });
+  }
+
   private mapTransaction(
     tx: Transaction,
     myWalletId: string,
-    nameMap?: Map<string, string>,
+    nameMap?: Map<string | null, string>,
   ): MappedTransaction {
     let txType: 'deposit' | 'sent' | 'received';
     let counterpartyWalletId: string | null = null;
@@ -140,9 +172,5 @@ export class AccountService {
       counterparty: counterpartyWalletId && nameMap ? (nameMap.get(counterpartyWalletId) ?? null) : null,
       createdAt: tx.createdAt,
     };
-  }
-
-  private async findUser(userId: string) {
-    return this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
   }
 }

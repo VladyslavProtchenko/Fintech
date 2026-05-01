@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { redirect } from 'next/navigation';
-import { ApiError } from '@/lib/errors';
 
 export const metadata: Metadata = { title: 'Ledger' };
 
@@ -43,12 +42,12 @@ export default async function HistoryPage({
   let data: LedgerResponse = { items: [], total: 0, page: 1, limit: LIMIT };
 
   try {
-    const qs = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
-    if (type) qs.set('type', type);
-    data = await api<LedgerResponse>(`/v1/wallet/ledger?${qs}`);
+    const query: Record<string, string> = { page: String(page), limit: String(LIMIT) };
+    if (type) query['type'] = type;
+    data = await api<LedgerResponse>('/v1/wallet/ledger', { query });
   } catch (err) {
     if (err instanceof ApiError && err.isUnauthorized) redirect('/login');
-    throw err;
+    // Wallet not provisioned yet or payment-service down — show empty state
   }
 
   const totalPages = Math.ceil(data.total / LIMIT);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useActionState, useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { wireAction } from '@/actions/payment';
 import { searchUserAction } from '@/actions/user';
@@ -14,6 +14,13 @@ export function SendForm() {
   const [searchError, setSearchError] = useState('');
   const [isSearching, startSearch] = useTransition();
   const [sendError, sendFormAction, pending] = useActionState(wireAction, null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (hasSubmitted && !pending && sendError === null) {
+      setStep('done');
+    }
+  }, [hasSubmitted, pending, sendError]);
 
   function handleSearch() {
     setSearchError('');
@@ -28,7 +35,7 @@ export function SendForm() {
     });
   }
 
-  if (step === 'done' && !sendError) {
+  if (step === 'done') {
     return (
       <div className="text-center py-8 space-y-4">
         <div className="text-5xl">🌵</div>
@@ -74,9 +81,9 @@ export function SendForm() {
       {/* Step 2: Amount */}
       {step === 'amount' && (
         <form
-          action={async (fd) => {
-            await sendFormAction(fd);
-            if (!sendError) setStep('done');
+          action={(fd) => {
+            setHasSubmitted(true);
+            sendFormAction(fd);
           }}
           className="space-y-4"
         >

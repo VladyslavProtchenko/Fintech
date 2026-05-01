@@ -6,6 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { PaymentServiceError } from '@fintech/payment-sdk';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -16,12 +17,23 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const response = exception.getResponse();
-
       const errors = this.extractErrors(response);
-
       res.status(status).json({ ok: false, errors });
       return;
     }
+
+    if (exception instanceof PaymentServiceError) {
+      const status = exception.isInsufficientFunds
+        ? HttpStatus.UNPROCESSABLE_ENTITY
+        : HttpStatus.BAD_GATEWAY;
+      res.status(status).json({
+        ok: false,
+        errors: [{ field: '_', reason: exception.message }],
+      });
+      return;
+    }
+
+    console.error('Unhandled exception:', exception);
 
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       ok: false,
