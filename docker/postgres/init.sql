@@ -7,3 +7,4 @@ CREATE DATABASE orange_db;
 CREATE DATABASE platform_manager;
 CREATE DATABASE cactus_db;
 CREATE DATABASE apricot_db;
+CREATE DATABASE cherry_db;

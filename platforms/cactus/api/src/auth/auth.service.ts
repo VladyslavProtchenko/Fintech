@@ -3,9 +3,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { PaymentClient } from '@fintech/payment-sdk';
 import { hashPassword, comparePassword } from '@fintech/shared-auth';
 import type { JwtPayload } from '@fintech/shared-auth';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,32 +12,16 @@ import type { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
-  private readonly paymentClient: PaymentClient;
-  private readonly platformId: string;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
-    config: ConfigService,
-  ) {
-    this.paymentClient = new PaymentClient({
-      baseUrl: config.getOrThrow('PAYMENT_API_URL'),
-      apiKey: config.getOrThrow('PAYMENT_API_KEY'),
-    });
-    this.platformId = config.getOrThrow('PLATFORM_ID');
-  }
+  ) {}
 
   async register(dto: RegisterDto): Promise<{ token: string }> {
     const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
     if (existing) throw new ConflictException('Email already in use');
-
-    const paymentClient = await this.paymentClient.createClient({
-      email: dto.email,
-      name: dto.name,
-      platformId: this.platformId,
-    });
 
     const passwordHash = await hashPassword(dto.password);
 
@@ -48,8 +30,6 @@ export class AuthService {
         email: dto.email,
         name: dto.name,
         passwordHash,
-        paymentClientId: paymentClient.id,
-        walletId: paymentClient.wallet?.id ?? '',
       },
     });
 

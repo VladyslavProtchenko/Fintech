@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "User" ALTER COLUMN "paymentClientId" DROP NOT NULL;
+ALTER TABLE "User" ALTER COLUMN "walletId" DROP NOT NULL;

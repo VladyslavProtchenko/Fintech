@@ -90,12 +90,11 @@ services:
     build:
       context: .
       dockerfile: apps/payment-service/Dockerfile
-    ports:
-      - "3004:3004"
-    env_file:
-      - apps/payment-service/.env.example
     environment:
+      NODE_ENV: development
+      PORT: 3004
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/payment_service
+      API_KEY: dev-api-key-12345
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,7 +1,7 @@
 {
   "name": "payment-service",
   "version": "0.0.1",
-  "description": "Payment system core — clients, wallets, transactions",
+  "description": "Payment system core \u2014 clients, wallets, transactions",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -41,7 +41,8 @@
     "pg": "^8.20.0",
     "prisma": "^7.8.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

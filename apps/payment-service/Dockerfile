@@ -38,6 +38,7 @@ COPY --from=builder /app/apps/payment-service/dist      ./apps/payment-service/d
 COPY --from=builder /app/apps/payment-service/generated ./apps/payment-service/generated
 COPY apps/payment-service/package.json                  ./apps/payment-service/package.json
 COPY apps/payment-service/prisma                        ./apps/payment-service/prisma
+COPY apps/payment-service/prisma.config.ts              ./apps/payment-service/prisma.config.ts
 
 RUN pnpm install --frozen-lockfile --prod
 

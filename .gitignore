@@ -19,6 +19,9 @@ docs/screenshots/
 /*.png
 /*.jpg
 
+# pnpm store cache
+.pnpm-store/
+
 # Build artifacts
 tsconfig.tsbuildinfo
 .next/
